@@ -112,24 +112,24 @@ func TestThePackageUsesTheGeneratedConcreteModel(t *testing.T) {
 	wants := map[string][]string{
 		"model.go": {
 			`"github.com/arandu-io/hesape/database/model"`,
-			"type Impersonate struct {\n\tmodel.Model\n",
-			"var impersonateTable = model.NewTable(model.TableSpec{",
+			"type Impersonation struct {\n\tmodel.Model\n",
+			"var impersonationTable = model.NewTable(model.TableSpec{",
 			"ManualKey: true,",
 			"// arandu:begin custom\n",
 			"// arandu:end custom\n",
 		},
-		"ImpersonateQuery.go": {
+		"ImpersonationQuery.go": {
 			generatedHeading,
-			"func Impersonates(db model.DB) *ImpersonateQuery",
-			"type ImpersonateCollection []*Impersonate",
+			"func Impersonations(db model.DB) *ImpersonationQuery",
+			"type ImpersonationCollection []*Impersonation",
 		},
 		"service.go": {
 			"db     *data.DB",
 			"func NewImpersonateService(db *data.DB) *ImpersonateService",
-			"Impersonates(s.db).New()",
-			"Impersonates(s.db).WhereKey(",
-			") (*Impersonate, error)",
-			") ([]*Impersonate, error)",
+			"Impersonations(s.db).New()",
+			"Impersonations(s.db).WhereKey(",
+			") (*Impersonation, error)",
+			") ([]*Impersonation, error)",
 		},
 		"module.go": {
 			"NewImpersonateService(db)",
@@ -172,8 +172,8 @@ func TestThePackageUsesTheGeneratedConcreteModel(t *testing.T) {
 				t.Errorf("%s still spells the generic model layer %q", filepath.ToSlash(relative), stale)
 			}
 		}
-		if relative != "ImpersonateQuery.go" && strings.Contains(string(body), generatedHeading) {
-			t.Errorf("%s carries the heading of the generated query, which only ImpersonateQuery.go may", filepath.ToSlash(relative))
+		if relative != "ImpersonationQuery.go" && strings.Contains(string(body), generatedHeading) {
+			t.Errorf("%s carries the heading of the generated query, which only ImpersonationQuery.go may", filepath.ToSlash(relative))
 		}
 		return nil
 	})
@@ -191,13 +191,13 @@ func TestTheGuidesTeachTheGeneratedModelBoundary(t *testing.T) {
 
 	root := packageRoot(t)
 	guides := map[string][]string{
-		"AGENTS.md":                {"Impersonates(db)", "security.Authorize"},
-		"README.md":                {"Impersonates(db)", "ImpersonateQuery", "aru model:build", "RequireAuth"},
-		"CONTRIBUTING.md":          {"Impersonates(db)", "authorizes before reaching the Model", "aru model:build"},
+		"AGENTS.md":                {"Impersonations(db)", "security.Authorize"},
+		"README.md":                {"Impersonations(db)", "ImpersonationQuery", "aru model:build", "RequireAuth"},
+		"CONTRIBUTING.md":          {"Impersonations(db)", "authorizes before reaching the Model", "aru model:build"},
 		"SECURITY.md":              {"Model terminal", "data.Tenant(g)"},
-		".agents/skills/README.md": {"ImpersonateQuery", "custom block"},
-		".agents/skills/impersonate-module/SKILL.md":  {"impersonateTable", "ctx.User()", "RequireAuth", "return err"},
-		".agents/skills/impersonate-policy/SKILL.md":  {"security.Authorize", "Impersonates(s.db).New()"},
+		".agents/skills/README.md": {"ImpersonationQuery", "custom block"},
+		".agents/skills/impersonate-module/SKILL.md":  {"impersonationTable", "ctx.User()", "RequireAuth", "return err"},
+		".agents/skills/impersonate-policy/SKILL.md":  {"security.Authorize", "Impersonations(s.db).New()"},
 		".agents/skills/impersonate-release/SKILL.md": {"model:build --check", "configured copy"},
 		".agents/skills/impersonate-package/SKILL.md": {"RequireAuth", "/auth/login"},
 	}

@@ -3,188 +3,244 @@ package impersonate
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
-	"github.com/arandu-io/framework/validation"
+	"github.com/arandu-io/hesape/auth"
+	activitylog "github.com/hyz-is/arandu-activitylog"
 )
 
-// Pagination bounds for List. A request that asks for everything gets the
-// maximum, never everything: an unbounded query is how one page load takes a
-// production database down.
 const (
 	defaultLimit = 50
 	maxLimit     = 200
 )
 
-// sortableImpersonate is the ordering allowlist. A column name taken directly
-// from a request would turn ordering into an injection surface.
-var sortableImpersonate = map[string]string{
-	"":           "created_at",
-	"name":       "name",
-	"created_at": "created_at",
-}
+// The refusals of an impersonation the policy cannot see, because they are
+// about the account and not the impersonation. Each wraps ErrForbidden.
+var (
+	// ErrNotImpersonable is an operator going into another operator's
+	// account.
+	ErrNotImpersonable = fmt.Errorf("impersonate: this account cannot be impersonated: %w", security.ErrForbidden)
+	// ErrNotImpersonating is a leave asked by somebody who is in no account but
+	// their own.
+	ErrNotImpersonating = fmt.Errorf("impersonate: nobody is inside another account here: %w", security.ErrForbidden)
+)
 
-// ImpersonateService orchestrates the use cases of this package: it validates the
-// request, asks the policy for a Grant, applies the rules the entity holds for
-// itself, and persists with that Grant.
-//
-// It receives its collaborators through the constructor. There is no container
-// and no resolution by reflection: what this service is made of is written at
-// the one place that builds it, and reading that place is how somebody learns
-// what the package touches.
-//
-// Everything a handler is allowed to do goes through here. The service is the
-// only owner of the database handle, so the request layer cannot reach a Model
-// before the policy has answered.
+// ImpersonateService is the package's use cases. It owns the database handle;
+// every exported method asks the policy before it reads or writes.
 type ImpersonateService struct {
 	db     *data.DB
 	policy ImpersonatePolicy
+
+	// now is the clock, replaceable by a test.
+	now func() time.Time
+
+	targets  Targets
+	allowed  func(ctx context.Context, target security.Subject) bool
+	activity *activitylog.Logger
+	ttl      time.Duration
+	userType string
 }
 
-// NewImpersonateService wires the service over the application's database handle.
+// NewImpersonateService returns the use cases over a database handle. New wires
+// the rest.
 func NewImpersonateService(db *data.DB) *ImpersonateService {
-	return &ImpersonateService{db: db}
+	return &ImpersonateService{db: db, now: func() time.Time { return time.Now().UTC() }, ttl: DefaultTTL, userType: DefaultUserType}
 }
 
-// CreateRequest is the input contract.
+// Start takes an operator into somebody's account: the answer is the subject
+// the session carries from then on -- the account's owner, with the operator
+// kept as the one acting, able to change it -- and the impersonation that
+// records the visit.
 //
-// The fields are explicit and there is no mass assignment, so a request body
-// cannot write a column nobody meant to expose. There is no TenantID here and
-// there must never be one: the tenant comes from the Grant, which comes from
-// the session.
-type CreateRequest struct {
-	// Name is what the record will be called.
-	Name string
-}
-
-// Validate reports the errors per field.
-func (r CreateRequest) Validate() validation.Errors {
-	e := validation.Errors{}
-	validation.Required(e, "name", r.Name)
-	validation.MaxLen(e, "name", r.Name, 120)
-	return e
-}
-
-// Compile-time proof that the request honors the validation contract.
-var _ validation.Validatable = CreateRequest{}
-
-// Create is the whole path in one function: validate, authorize, then act with
-// the Grant the authorization produced.
-//
-// The candidate is authorized before it is stored, and the candidate is what
-// the policy sees -- so a rule about what may be created is a rule about the
-// record being created, and not about the person alone.
-func (s *ImpersonateService) Create(ctx context.Context, actor security.Subject, in CreateRequest) (*Impersonate, error) {
-	if errs := in.Validate(); errs.Any() {
-		return nil, errs
+// The operator may not go into their own account, into another operator's,
+// or anywhere from inside an account already.
+func (s *ImpersonateService) Take(ctx context.Context, actor security.Subject, targetID string) (security.Subject, *Impersonation, error) {
+	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateTake, Impersonation{})
+	if err != nil {
+		return security.Subject{}, nil, err
+	}
+	target, err := s.targets.Target(ctx, data.Tenant(g), targetID)
+	if err != nil {
+		return security.Subject{}, nil, err
+	}
+	if target.ID == "" {
+		return security.Subject{}, nil, ErrNotFound
+	}
+	if target.Tenant != actor.Tenant {
+		return security.Subject{}, nil, ErrNotFound
+	}
+	if target.HasRole(ImpersonatorRole) || (s.allowed != nil && !s.allowed(ctx, target)) {
+		return security.Subject{}, nil, ErrNotImpersonable
+	}
+	acting, err := auth.ImpersonateActing(actor, target)
+	if err != nil {
+		return security.Subject{}, nil, fmt.Errorf("%w: %w", security.ErrForbidden, err)
 	}
 
-	proposed := Impersonate{Name: in.Name}
+	record, err := Impersonations(s.db).New()
+	if err != nil {
+		return security.Subject{}, nil, err
+	}
+	if record.ID, err = data.NewID(); err != nil {
+		return security.Subject{}, nil, err
+	}
+	now := s.now()
+	record.TenantID, record.ActorID, record.TargetID = data.Tenant(g), actor.ID, target.ID
+	record.Acting, record.Status = true, Open
+	record.StartedAt, record.ExpiresAt, record.ClosedAt = now, now.Add(s.ttl), now
+	record.CreatedAt, record.UpdatedAt = now, now
+	if _, err := record.Save(ctx, g); err != nil {
+		return security.Subject{}, nil, err
+	}
+	if _, err := s.activity.In(ctx, g, LogName).Event("impersonation.taken").
+		OnRef(activitylog.Ref{Type: s.userType, ID: target.ID}).
+		WithProperty("impersonation", record.ID).WithProperty("expires_at", record.ExpiresAt.Format(time.RFC3339)).
+		Log("entrou na conta para inspecionar"); err != nil {
+		return security.Subject{}, nil, err
+	}
+	return acting, record, nil
+}
 
-	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateCreate, proposed)
+// Leave takes the operator inside an account back to their own: the answer
+// is the operator's own subject, for the session, and the impersonation it
+// closed. reason is EndLeft or EndExpired.
+func (s *ImpersonateService) Leave(ctx context.Context, current security.Subject, reason string) (security.Subject, *Impersonation, error) {
+	if current.Impersonator == nil {
+		return security.Subject{}, nil, ErrNotImpersonating
+	}
+	back, err := auth.Leave(current)
+	if err != nil {
+		return security.Subject{}, nil, fmt.Errorf("%w: %w", security.ErrForbidden, err)
+	}
+	g, err := security.Authorize(ctx, s.policy, back, ImpersonateLeave, Impersonation{})
+	if err != nil {
+		return security.Subject{}, nil, err
+	}
+	open, err := Impersonations(s.db).Where("actor_id", "=", back.ID).Where("target_id", "=", current.ID).
+		Where("status", "=", string(Open)).OrderByDesc("started_at").First(ctx, g)
+	if err != nil {
+		return security.Subject{}, nil, err
+	}
+	if open == nil {
+		// Nothing to close -- the deadline closed it, or the row is gone --
+		// and the operator still goes back.
+		return back, nil, nil
+	}
+	if _, err := security.Authorize(ctx, s.policy, back, ImpersonateLeave, *open); err != nil {
+		return security.Subject{}, nil, err
+	}
+	if reason != EndExpired {
+		reason = EndLeft
+	}
+	now := s.now()
+	open.Status, open.ClosedAt, open.EndReason, open.UpdatedAt = Closed, now, reason, now
+	if _, err := open.Save(ctx, g); err != nil {
+		return security.Subject{}, nil, err
+	}
+	description := "saiu da conta inspecionada"
+	if reason == EndExpired {
+		description = "a inspeção da conta expirou"
+	}
+	if _, err := s.activity.In(ctx, g, LogName).Event("impersonation."+reason).
+		OnRef(activitylog.Ref{Type: s.userType, ID: current.ID}).
+		WithProperty("impersonation", open.ID).Log(description); err != nil {
+		return security.Subject{}, nil, err
+	}
+	return back, open, nil
+}
+
+// Lapsed reports whether the impersonation the current subject is in has passed
+// its deadline, or no longer exists as open. A subject that is in no
+// impersonation has nothing lapsed.
+func (s *ImpersonateService) Lapsed(ctx context.Context, current security.Subject) (bool, error) {
+	if current.Impersonator == nil {
+		return false, nil
+	}
+	back := *current.Impersonator
+	g, err := security.Authorize(ctx, s.policy, back, ImpersonateLeave, Impersonation{})
+	if err != nil {
+		return false, err
+	}
+	open, err := Impersonations(s.db).Where("actor_id", "=", back.ID).Where("target_id", "=", current.ID).
+		Where("status", "=", string(Open)).OrderByDesc("started_at").First(ctx, g)
+	if err != nil {
+		return false, err
+	}
+	return open == nil || open.Expired(s.now()), nil
+}
+
+// HistoryQuery narrows the history. Page counts from one.
+type HistoryQuery struct {
+	ActorID  string
+	TargetID string
+	Status   Status
+	Page     int
+	PerPage  int
+}
+
+// History is a page of impersonations, newest first, and how many there are.
+func (s *ImpersonateService) History(ctx context.Context, actor security.Subject, q HistoryQuery) ([]*Impersonation, int, error) {
+	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateHistory, Impersonation{})
+	if err != nil {
+		return nil, 0, err
+	}
+	if q.PerPage <= 0 || q.PerPage > maxLimit {
+		q.PerPage = defaultLimit
+	}
+	if q.Page < 1 {
+		q.Page = 1
+	}
+	filtered := func() *ImpersonationQuery {
+		b := Impersonations(s.db)
+		if q.ActorID != "" {
+			b = b.Where("actor_id", "=", q.ActorID)
+		}
+		if q.TargetID != "" {
+			b = b.Where("target_id", "=", q.TargetID)
+		}
+		if q.Status != "" {
+			b = b.Where("status", "=", string(q.Status))
+		}
+		return b
+	}
+	total, err := filtered().Count(ctx, g)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := filtered().OrderByDesc("started_at").OrderByDesc("id").Offset((q.Page-1)*q.PerPage).Limit(q.PerPage).Get(ctx, g)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, int(total), nil
+}
+
+// Find answers one impersonation, for an operator.
+func (s *ImpersonateService) Find(ctx context.Context, actor security.Subject, id string) (*Impersonation, error) {
+	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateHistory, Impersonation{})
 	if err != nil {
 		return nil, err
 	}
-	if proposed.ID, err = data.NewID(); err != nil {
-		return nil, err
-	}
-	// The row is built by the query so it is wired to its table, and its fields
-	// are assigned one by one: copying proposed over it would replace the
-	// embedded model with the unwired one of a struct literal.
-	candidate, err := Impersonates(s.db).New()
-	if err != nil {
-		return nil, err
-	}
-	candidate.ID = proposed.ID
-	candidate.TenantID = data.Tenant(g)
-	candidate.Name = proposed.Name
-	if _, err := candidate.Save(ctx, g); err != nil {
-		return nil, err
-	}
-	return candidate, nil
-}
-
-// Find returns one record, and asks the policy twice.
-//
-// The first call is on the empty candidate, because there is no way to read the
-// record without a Grant and no way to hold a Grant without a decision. What it
-// decides is whether this subject may view records of this kind at all.
-//
-// The second call is on the record that came back, and it is the one a rule
-// about the record itself depends on: the first call saw an empty value, so
-// anything the policy says about who owns the row, or about a row that is not
-// published yet, never ran. Without it a policy can be written that looks
-// correct, reads correctly, and is never consulted about the thing it protects.
-//
-// The read itself is already scoped by data.Tenant, so the second call is not
-// what keeps customers apart. It is what keeps the policy honest.
-func (s *ImpersonateService) Find(ctx context.Context, actor security.Subject, id string) (*Impersonate, error) {
-	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateView, Impersonate{})
-	if err != nil {
-		return nil, err
-	}
-
-	record, err := Impersonates(s.db).WhereKey(id).First(ctx, g)
+	record, err := Impersonations(s.db).WhereKey(id).First(ctx, g)
 	if err != nil {
 		return nil, err
 	}
 	if record == nil {
 		return nil, ErrNotFound
 	}
-
-	if _, err := security.Authorize(ctx, s.policy, actor, ImpersonateView, *record); err != nil {
+	if _, err := security.Authorize(ctx, s.policy, actor, ImpersonateHistory, *record); err != nil {
 		return nil, err
 	}
 	return record, nil
 }
 
-// List returns a page of records.
-//
-// It authorizes once, on the empty candidate, and the tenant filter in the
-// statement is what bounds the rows. A policy call per row would be one call
-// per record on a page and would still not narrow the query -- a listing that
-// has to read a customer's rows in order to decide it may not read them has
-// already read them.
-//
-// A rule that hides individual records from a listing belongs in the statement,
-// as a predicate, and the action here is what decides whether the listing may
-// run at all.
-func (s *ImpersonateService) List(ctx context.Context, actor security.Subject, q data.Query) ([]*Impersonate, error) {
-	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateList, Impersonate{})
+// OpenNow lists the impersonations under way: who is inside which account right
+// now, and until when.
+func (s *ImpersonateService) OpenNow(ctx context.Context, actor security.Subject) ([]*Impersonation, error) {
+	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateHistory, Impersonation{})
 	if err != nil {
 		return nil, err
 	}
-
-	column, ok := sortableImpersonate[q.Sort]
-	if !ok {
-		return nil, fmt.Errorf("impersonate: sort field not allowed: %q", q.Sort)
-	}
-
-	limit := q.Limit
-	switch {
-	case limit <= 0:
-		limit = defaultLimit
-	case limit > maxLimit:
-		limit = maxLimit
-	}
-
-	page := Impersonates(s.db)
-	if q.Cursor != "" {
-		anchor, err := Impersonates(s.db).WhereKey(q.Cursor).Value(ctx, g, column)
-		if err != nil {
-			return nil, err
-		}
-		if anchor == nil {
-			return nil, nil
-		}
-		page = page.Where(func(after *ImpersonateQuery) {
-			after.Where(column, ">", anchor).
-				OrWhere(func(equal *ImpersonateQuery) {
-					equal.Where(column, "=", anchor).Where("id", ">", q.Cursor)
-				})
-		})
-	}
-
-	return page.OrderBy(column).OrderBy("id").Limit(limit).Get(ctx, g)
+	return Impersonations(s.db).Where("status", "=", string(Open)).OrderByDesc("started_at").Limit(maxLimit).Get(ctx, g)
 }

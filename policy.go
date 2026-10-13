@@ -7,77 +7,68 @@ import (
 	"github.com/arandu-io/framework/security"
 )
 
-// The actions of Impersonate. Constants rather than strings at the call site: a
-// typo in an action name would silently authorize nothing, or worse, everything.
-//
-// They carry the entity in the name because an application registers many
-// packages, and the name of an action shows up in logs and in audit trails
-// where "view" on its own says nothing about what was viewed.
+// The actions of the package. Constants rather than strings at the call site:
+// a typo in an action name would silently authorize nothing, or worse,
+// everything.
 const (
-	// ImpersonateView is reading one record.
-	ImpersonateView security.Action = "impersonate.view"
-	// ImpersonateList is paging through the records.
-	ImpersonateList security.Action = "impersonate.list"
-	// ImpersonateCreate is adding one.
-	ImpersonateCreate security.Action = "impersonate.create"
-	// ImpersonateUpdate is changing one.
-	ImpersonateUpdate security.Action = "impersonate.update"
-	// ImpersonateDelete is removing one.
-	ImpersonateDelete security.Action = "impersonate.delete"
+	// ImpersonateTake is an operator going into somebody's account.
+	ImpersonateTake security.Action = "impersonate"
+	// ImpersonateLeave is the operator going back to their own account.
+	ImpersonateLeave security.Action = "impersonate.leave"
+	// ImpersonateHistory is reading who went into which account, and when.
+	ImpersonateHistory security.Action = "impersonate.history"
 )
 
-// ImpersonatePolicy is the only authority over who does what with a Impersonate.
+// ImpersonatorRole is the role that may go into other people's accounts and read
+// the history. The application gives it through arandu-permission, which
+// fills the Subject's roles.
+const ImpersonatorRole = "impersonate.impersonator"
+
+// ImpersonatePolicy is the only authority over who goes into whose account.
 //
-// IT DENIES EVERYTHING, and that is the state to start from rather than a
-// placeholder to delete. A policy shipped with a branch that allows every
-// action is a hole in every application that installs the package, and the hole
-// looks like working code until somebody reads it.
-//
-// There is deliberately no such branch to remove. Open one action at a time,
-// inside the custom block below, saying who may take it and on which record --
-// what is not written there stays closed, including every action added later.
+// It denies unless a rule below allows. An operator goes into accounts of
+// their own tenant and reads its history; whoever an impersonation names as its
+// operator ends it. Whether the account itself may be gone into -- another
+// operator's, the operator's own -- is the service's refusal, because the
+// policy sees the impersonation and not the account.
 type ImpersonatePolicy struct{}
 
-// Compile-time proof that the policy answers about this entity and no other. A
-// policy that drifted onto another type would leave this one unguarded while
-// the Model path still compiled.
-var _ security.Policy[Impersonate] = ImpersonatePolicy{}
+// Compile-time proof that the policy answers about this entity and no other.
+var _ security.Policy[Impersonation] = ImpersonatePolicy{}
 
 // Can decides whether the subject may perform the action on the record.
-//
-// It is the only place that decides. The service reaches the Model only after
-// Authorize turns this method's nil result into a Grant.
-func (ImpersonatePolicy) Can(ctx context.Context, s security.Subject, a security.Action, record Impersonate) error {
-	// Tenant isolation comes first and applies to every action. Without it every
-	// check below would be pointless in a multi-tenant system: a rule that
-	// allows an owner to read their own record would allow it across customers
-	// as soon as two of them have a record with the same identifier.
-	//
-	// The empty id is the candidate that has not been stored yet, which belongs
-	// to nobody until it is written with the tenant off the Grant.
+func (ImpersonatePolicy) Can(ctx context.Context, s security.Subject, a security.Action, record Impersonation) error {
+	// Tenant isolation comes first and applies to every action. The empty id
+	// is the probe a listing asks, or the impersonation about to begin.
 	if record.ID != "" && record.TenantID != s.Tenant {
-		return fmt.Errorf("impersonate belongs to another tenant")
+		return fmt.Errorf("impersonation belongs to another tenant")
 	}
 
 	// arandu:begin custom
-	// The rules of this package go here, one action at a time. A rule that
-	// depends on the record and not only on the role is written the same way:
-	//
-	//	if a == ImpersonateView && (s.ID == record.ID || s.HasRole("admin")) {
-	//		return nil
-	//	}
-	//
-	// The routes of this package sit behind RequireAuth, so none of them asks
-	// about a guest. An application that calls the service from a public route
-	// of its own may, with security.Guest: a reader it declared anonymous on
-	// purpose, and the only subject that arrives without an id. Answer it
-	// explicitly or it falls through to the refusal below, which is the safe
-	// direction:
-	//
-	//	if a == ImpersonateView && s.IsGuest() && record.Published {
-	//		return nil
-	//	}
+
+	if s.IsGuest() {
+		return fmt.Errorf("a guest inspects nobody")
+	}
+	// Somebody already inside an account goes nowhere else from there.
+	if s.Impersonator != nil {
+		return fmt.Errorf("%s is inside %s's account", s.Impersonator.ID, s.ID)
+	}
+
+	switch a {
+	case ImpersonateTake, ImpersonateHistory:
+		if s.HasRole(ImpersonatorRole) {
+			return nil
+		}
+	case ImpersonateLeave:
+		// The operator, back as themselves, closes what they opened. The
+		// role is not asked: an operator whose role was taken away while
+		// inside still has to be able to leave.
+		if record.ID == "" || record.ActorID == s.ID {
+			return nil
+		}
+	}
+
 	// arandu:end custom
 
-	return fmt.Errorf("no rule allows %s on impersonate", a)
+	return fmt.Errorf("no rule allows %s on impersonation", a)
 }

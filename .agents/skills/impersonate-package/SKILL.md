@@ -135,15 +135,15 @@ Opening an action means writing the rule that opens it, in the package's
 
 ```go
 	// arandu:begin custom
-	if a == ImpersonateView && (s.ID == record.ID || s.HasRole("admin")) {
+	if a == ImpersonateHistory && (s.ID == record.ID || s.HasRole("admin")) {
 		return nil
 	}
 	// arandu:end custom
 ```
 
 What is not written there stays closed, including every action added later.
-There are five actions — `ImpersonateView`, `ImpersonateList`, `ImpersonateCreate`,
-`ImpersonateUpdate`, `ImpersonateDelete` — and opening one opens exactly one.
+There are three actions — `ImpersonateTake`, `ImpersonateLeave`, `ImpersonateHistory` —
+and opening one opens exactly one.
 
 **Do not open it from the application.** There is no hook, no override and no
 config flag for the policy, and adding one would be a second place where
