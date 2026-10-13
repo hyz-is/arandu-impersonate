@@ -1,4 +1,4 @@
-package skeleton
+package impersonate
 
 import (
 	"embed"
@@ -153,17 +153,17 @@ func readArchive() (paths, names []string) {
 		return nil
 	})
 	if err != nil {
-		panic("skeleton: reading the embedded views: " + err.Error())
+		panic("impersonate: reading the embedded views: " + err.Error())
 	}
 	if len(paths) == 0 {
-		panic("skeleton: the embedded view directory holds no view, so every name this package renders would be missing and nothing would say so")
+		panic("impersonate: the embedded view directory holds no view, so every name this package renders would be missing and nothing would say so")
 	}
 	return paths, names
 }
 
 // viewName turns an archive path into the name the view is registered under.
 //
-//	resources/views/modules/skeleton/index.kyse.go -> modules.skeleton.index
+//	resources/views/modules/impersonate/index.kyse.go -> modules.impersonate.index
 func viewName(path string) string {
 	name := strings.TrimPrefix(strings.TrimPrefix(path, viewRoot), "/")
 	name = strings.TrimSuffix(name, viewSuffix)
