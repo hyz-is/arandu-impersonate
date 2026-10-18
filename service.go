@@ -71,7 +71,7 @@ func (s *ImpersonateService) Take(ctx context.Context, actor security.Subject, t
 	if target.Tenant != actor.Tenant {
 		return security.Subject{}, nil, ErrNotFound
 	}
-	if target.HasRole(ImpersonatorRole) || (s.allowed != nil && !s.allowed(ctx, target)) {
+	if IsOperator(target) || (s.allowed != nil && !s.allowed(ctx, target)) {
 		return security.Subject{}, nil, ErrNotImpersonable
 	}
 	acting, err := auth.ImpersonateActing(actor, target)

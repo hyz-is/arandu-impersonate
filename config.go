@@ -72,8 +72,8 @@ type Config struct {
 	// CanBeImpersonated is the application's answer to whether an account may
 	// be impersonated at all -- laravel-impersonate's canBeImpersonated: a
 	// super admin's account, an account under legal hold. Nil lets every
-	// account through, except one that carries ImpersonatorRole, which is
-	// never impersonated whatever this answers.
+	// account through, except an operator's -- one IsOperator answers true for
+	// -- which is never impersonated whatever this answers.
 	CanBeImpersonated func(ctx context.Context, target security.Subject) bool
 }
 

@@ -152,3 +152,24 @@ func TestAProtectedRouteRefusesSomebodyImpersonating(t *testing.T) {
 		t.Fatal("the protected handler ran")
 	}
 }
+
+func TestAManagerHoldingTheActionsGoesInAndIsNeverGoneInto(t *testing.T) {
+	w := install(t)
+
+	rec, cookies := w.do(t, http.MethodPost, impersonate.DefaultPrefix+"/take/ana", w.signIn(t, "gestora"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/painel" {
+		t.Fatalf("a manager holding the actions going in answered %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec, _ = w.do(t, http.MethodGet, "/painel", cookies)
+	if rec.Body.String() != "ana|gestora|writes" {
+		t.Fatalf("the panel inside the account says %q", rec.Body.String())
+	}
+	rec, _ = w.do(t, http.MethodGet, impersonate.DefaultPrefix+"/history", w.signIn(t, "gestora"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a manager holding the history action read it with %d", rec.Code)
+	}
+
+	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "gestora"); !errors.Is(err, impersonate.ErrNotImpersonable) {
+		t.Fatalf("an operator went into the account of a manager holding the action: %v", err)
+	}
+}

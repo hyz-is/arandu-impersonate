@@ -10,6 +10,25 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+### Added
+
+- `Actions()`, the two actions an application grants (`impersonate` and
+  `impersonate.history`), to splice into arandu-permission's
+  `Config.Actions`, and `IsOperator(s)`, whether a subject carries
+  `ImpersonatorRole` or holds `ImpersonateTake`.
+
+### Fixed
+
+- The policy opens `ImpersonateTake` and `ImpersonateHistory` to a subject that
+  holds the action, besides one carrying `ImpersonatorRole`. arandu-permission
+  fills the Subject's `Actions` and never its `Roles`, so a platform manager
+  whose access it administers was refused both. Each action opens only itself.
+
+### Changed
+
+- An account holding the action `impersonate` is an operator's and is never
+  impersonated, as an account carrying `ImpersonatorRole` already was.
+
 ## [0.1.0] - 2026-10-13
 
 The first release: laravel-impersonate for Arandu, with every act logged.

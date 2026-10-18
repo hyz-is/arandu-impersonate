@@ -40,6 +40,60 @@ func TestOnlyAnOperatorGoesIntoAccountsAndReadsTheHistory(t *testing.T) {
 	}
 }
 
+// TestAnOperatorWhosePermissionsAreAdministeredHoldsTheActions holds the
+// shape arandu-permission gives a subject: Actions filled, Roles left alone.
+func TestAnOperatorWhosePermissionsAreAdministeredHoldsTheActions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	both := security.Subject{ID: "op-9", Tenant: "acme", Verified: true,
+		Actions: []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory}}
+	for _, action := range []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory} {
+		if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, both, action, impersonate.Impersonation{}); err != nil {
+			t.Errorf("a subject holding the actions was refused %s: %v", action, err)
+		}
+	}
+	if got := impersonate.Actions(); len(got) != 2 || got[0] != impersonate.ImpersonateTake || got[1] != impersonate.ImpersonateHistory {
+		t.Errorf("Actions() = %v, want the two an application grants", got)
+	}
+	if !impersonate.IsOperator(both) || !impersonate.IsOperator(operator()) || impersonate.IsOperator(member()) {
+		t.Error("IsOperator does not answer the role and the action")
+	}
+
+	// Each action opens itself and nothing else.
+	takes := security.Subject{ID: "op-9", Tenant: "acme", Verified: true, Actions: []security.Action{impersonate.ImpersonateTake}}
+	if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, takes, impersonate.ImpersonateTake, impersonate.Impersonation{}); err != nil {
+		t.Errorf("a subject holding %s was refused it: %v", impersonate.ImpersonateTake, err)
+	}
+	if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, takes, impersonate.ImpersonateHistory, impersonate.Impersonation{}); !errors.Is(err, security.ErrForbidden) {
+		t.Errorf("%s opened %s: %v", impersonate.ImpersonateTake, impersonate.ImpersonateHistory, err)
+	}
+	// An action of another package, or one spelled like a role, opens nothing.
+	unrelated := security.Subject{ID: "user-1", Tenant: "acme", Verified: true,
+		Actions: []security.Action{"user.view", security.Action(impersonate.ImpersonatorRole)}}
+	for _, action := range []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory} {
+		if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, unrelated, action, impersonate.Impersonation{}); !errors.Is(err, security.ErrForbidden) {
+			t.Errorf("an unrelated action allowed %s: %v", action, err)
+		}
+	}
+	// Inside an account the actions open nothing either.
+	inside, err := auth.ImpersonateActing(both, member())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside.Actions = append(inside.Actions, impersonate.ImpersonateTake, impersonate.ImpersonateHistory)
+	for _, action := range []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory} {
+		if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, inside, action, impersonate.Impersonation{}); !errors.Is(err, security.ErrForbidden) {
+			t.Errorf("a subject inside an account was allowed %s by the action: %v", action, err)
+		}
+	}
+	// And another tenant's record stays another tenant's.
+	foreign := impersonate.Impersonation{ID: "i-1", TenantID: "globex", ActorID: "op-9"}
+	if _, err := security.Authorize(ctx, impersonate.ImpersonatePolicy{}, both, impersonate.ImpersonateHistory, foreign); !errors.Is(err, security.ErrForbidden) {
+		t.Errorf("the action read another tenant's impersonation: %v", err)
+	}
+}
+
 func TestNobodyGoesAnywhereFromInsideAnAccount(t *testing.T) {
 	t.Parallel()
 

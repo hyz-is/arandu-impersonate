@@ -20,9 +20,27 @@ const (
 )
 
 // ImpersonatorRole is the role that may go into other people's accounts and read
-// the history. The application gives it through arandu-permission, which
-// fills the Subject's roles.
+// the history, for an application that decides by role and fills the
+// Subject's Roles itself.
+//
+// An application whose permissions are administered by arandu-permission
+// grants the actions instead: arandu-permission fills the Subject's Actions
+// and never its Roles, so ImpersonateTake and ImpersonateHistory are what its
+// platform managers' group holds. The policy accepts either, and an account
+// that holds the role or ImpersonateTake is an operator's, never impersonated.
 const ImpersonatorRole = "impersonate.impersonator"
+
+// Actions are the actions an application grants through arandu-permission,
+// spliced into its permission.Config.Actions. ImpersonateLeave is not one of
+// them: nobody is granted leaving, the operator who went in always may.
+func Actions() []security.Action { return []security.Action{ImpersonateTake, ImpersonateHistory} }
+
+// IsOperator reports whether the subject may go into other people's accounts:
+// it carries ImpersonatorRole, or holds the action ImpersonateTake. Such an
+// account is never impersonated itself.
+func IsOperator(s security.Subject) bool {
+	return s.HasRole(ImpersonatorRole) || s.Can(ImpersonateTake)
+}
 
 // ImpersonatePolicy is the only authority over who goes into whose account.
 //
@@ -56,7 +74,9 @@ func (ImpersonatePolicy) Can(ctx context.Context, s security.Subject, a security
 
 	switch a {
 	case ImpersonateTake, ImpersonateHistory:
-		if s.HasRole(ImpersonatorRole) {
+		// The role, for an application that decides by role; the action
+		// itself, for one whose permissions arandu-permission administers.
+		if s.HasRole(ImpersonatorRole) || s.Can(a) {
 			return nil
 		}
 	case ImpersonateLeave:

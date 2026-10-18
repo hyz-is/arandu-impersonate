@@ -6,10 +6,27 @@ license: MIT
 
 # Opening the policy
 
-The package ships denying every action, and that is the state to start from
-rather than a placeholder to delete. There is no permit-all branch to remove,
-and adding one is the single change that would make every application installing
-this package unsafe while looking like working code.
+The policy denies unless a rule allows, and there is no permit-all branch to
+remove: adding one is the single change that would make every application
+installing this package unsafe while looking like working code.
+
+## The rules it ships
+
+| action | allowed to |
+| --- | --- |
+| `ImpersonateTake` (`impersonate`) | a subject that holds the action, or carries `ImpersonatorRole` |
+| `ImpersonateHistory` (`impersonate.history`) | a subject that holds the action, or carries `ImpersonatorRole` |
+| `ImpersonateLeave` (`impersonate.leave`) | the operator the impersonation names, with or without the role or the action |
+
+A guest is refused all three, and so is a subject already inside somebody
+else's account, whatever it holds. The action and the role are two ways to say
+the same thing because applications fill the Subject two ways: one whose
+permissions arandu-permission administers gets `Actions` filled and `Roles`
+left alone, and one that decides by role fills `Roles` itself. Asking only
+`HasRole` would refuse every manager of the first kind. Each action opens only
+itself, and `Actions()` lists the two an application grants.
+`IsOperator` is the same question asked about the account being gone into: an
+operator's account is never impersonated.
 
 ## How a request actually gets through
 

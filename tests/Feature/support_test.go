@@ -35,6 +35,9 @@ var people = map[string]security.Subject{
 	"bruno":  {ID: "bruno", Tenant: tenant, Verified: true},
 	"globex": {ID: "globex", Tenant: "globex", Verified: true},
 	"chefe":  {ID: "chefe", Tenant: tenant, Roles: []string{"super-admin"}, Verified: true},
+	// A platform manager whose permissions arandu-permission administers: the
+	// actions, and no role.
+	"gestora": {ID: "gestora", Tenant: tenant, Verified: true, Actions: []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory}},
 }
 
 // targets answers the application's accounts.

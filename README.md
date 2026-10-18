@@ -22,7 +22,7 @@ unlogged.
 
 | laravel-impersonate | here |
 | --- | --- |
-| `canImpersonate()` | the policy: the role `impersonate.impersonator`, given through arandu-permission |
+| `canImpersonate()` | the policy: the action `impersonate` (`ImpersonateTake`) granted through arandu-permission, or the role `impersonate.impersonator` in an application that fills roles itself |
 | `canBeImpersonated()` | `Config.CanBeImpersonated`; an impersonator's account is never impersonated |
 | no impersonating yourself, nor from inside an impersonation | the same refusals |
 | routes `impersonate` and `impersonate.leave`, `take_redirect_to`, `leave_redirect_to` | the same names; `TakeRedirectTo`, `LeaveRedirectTo` |
@@ -132,11 +132,22 @@ users.
 
 ## Give people access
 
-`impersonate.impersonator` is the role that takes users' places and reads the history -- in a
-multi-tenant application, the platform manager's, never a role an account gives its invited members;
-the application gives it through
-[arandu-permission](https://github.com/hyz-is/arandu-permission). An account
-that carries the role is never impersonated.
+Going into accounts and reading the history belong to the platform's managers
+-- never to a role an account gives its invited members. The policy opens
+`ImpersonateTake` and `ImpersonateHistory` to a subject that either
+
+- holds the action itself, `impersonate` and `impersonate.history`: this is
+  how an application whose permissions
+  [arandu-permission](https://github.com/hyz-is/arandu-permission) administers
+  grants it, because arandu-permission fills the Subject's `Actions` and never
+  its `Roles`. Splice `impersonate.Actions()` into `permission.Config.Actions`
+  and put both in the platform managers' group; or
+- carries the role `impersonate.impersonator`, in an application that decides by
+  role and fills `Roles` itself.
+
+Each action opens only itself: `impersonate` alone does not read the history.
+An account that holds the role or the action `impersonate` is an operator's
+(`impersonate.IsOperator`) and is never impersonated.
 
 ## Configuration
 
