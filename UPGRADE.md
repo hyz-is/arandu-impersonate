@@ -1,6 +1,6 @@
 # Upgrade Guide
 
-## Unreleased
+## v0.2.0
 
 ### Platform managers can hold the actions instead of the role
 
