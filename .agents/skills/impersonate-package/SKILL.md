@@ -1,6 +1,6 @@
 ---
 name: impersonate-package
-description: Install, wire and use the Arandu Impersonate package (Go, Arandu) in an application. Use when the request is to "install Arandu Impersonate", "add impersonate to the app", "go get github.com/hyz-is/arandu-impersonate", "wire it into bootstrap/app.go", "register the module", "use the impersonate routes", "everything under /impersonate returns 403", "403 forbidden from impersonate", "it redirects to /auth/login", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", or when a project's go.mod already requires github.com/hyz-is/arandu-impersonate. Covers the three lines of wiring and where each one goes, the Config fields, none of them required, the routes, their names and the session they need, why the policy refuses everything until somebody opens it, and the migration step that is not optional.
+description: Install, wire and use the Arandu Impersonate package (Go, Arandu) in an application. Use when the request is to "install Arandu Impersonate", "add impersonate to the app", "go get github.com/hyz-is/arandu-impersonate", "wire it into bootstrap/app.go", "register the module", "use the impersonate routes", "everything under /impersonate returns 403", "403 forbidden from impersonate", "it redirects to /auth/login", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", "impersonate.New refuses a nil Targets", "Config.Activity is nil", "a platform manager gets 403", or when a project's go.mod already requires github.com/hyz-is/arandu-impersonate. Covers the wiring and where each line goes, the Config fields and the two that are required (Targets and Activity), the routes, their names and the session they need, who the policy lets in (the impersonate actions or the impersonator role), and the migration step that is not optional.
 license: MIT
 metadata:
   audience: app
@@ -16,12 +16,17 @@ happen.
 ## Install
 
 ```bash
+go get github.com/hyz-is/arandu-activitylog
 go get github.com/hyz-is/arandu-impersonate
 ```
 
-## The three lines of wiring, and where each one goes
+arandu-activitylog is not optional: everything an operator does inside an
+account is recorded there under the operator's name, and `New` refuses to
+build without its logger.
 
-All three are in `bootstrap/app.go`. Nothing else in the application changes,
+## The wiring, and where it goes
+
+All of it is in `bootstrap/app.go`. Nothing else in the application changes,
 and `aru make:module` does not edit this file for you.
 
 The import, with the other module imports:
@@ -32,26 +37,37 @@ import (
 )
 ```
 
-The construction, in `Build`, after the session store exists and before
-`k.Register`:
+The construction, in `Build`, after the session store and the activity log
+module exist and before `k.Register`:
 
 ```go
-	impersonateModule, err := impersonate.New(impersonate.Config{}, db, sessions)
+	impersonateModule, err := impersonate.New(impersonate.Config{
+		Targets:  impersonate.TargetsFunc(users.ImpersonationTarget), // required
+		Activity: activityModule.Logger(),                             // required
+	}, db, sessions)
 	if err != nil {
 		return App{}, err
 	}
 ```
 
-And the registration, inside the `k.Register(...)` call already there:
+The registration, inside the `k.Register(...)` call already there:
 
 ```go
 		impersonateModule,
 ```
 
-`New` returns an error rather than starting half-wired. It refuses a
-configuration that cannot work, a nil database handle and a nil session store,
-so a wiring mistake costs one restart instead of arriving as a nil dereference
-on the first request that needed it.
+and the guard, after `RequireAuth`, on the routes an operator reaches from
+inside an account:
+
+```go
+	panel := r.Group("/painel", middleware.RequireAuth(sessions), impersonateModule.Guard())
+```
+
+`New` returns an error rather than starting half-wired. It refuses a nil
+`Config.Targets`, a nil `Config.Activity`, a setting that cannot work, a nil
+database handle and a nil session store, so a wiring mistake costs one restart
+instead of arriving as a nil dereference on the first request that needed it.
+`impersonate.Config{}` is **not** a complete configuration.
 
 ## Then run the migrations
 
@@ -62,6 +78,7 @@ aru migrate
 Not optional, and not automatic. The package owns a table, which is why its
 `arandu.mod.toml` declares `migrations = true` — that declaration is how an
 installer finds out before deploying rather than from the first request.
+arandu-activitylog's migrations run in the same step.
 
 `aru migrate` is a step in the pipeline and never a call at the start of the
 process: with N replicas, N migrations race each other.
@@ -73,27 +90,33 @@ route that authorized correctly. The migration has not run.
 
 | field | required | meaning |
 | --- | --- | --- |
+| `Targets` | **yes** | loads the account an operator goes into: the subject its owner signs in as. The package keeps no users. `New` refuses nil |
+| `Activity` | **yes** | arandu-activitylog's logger, `activityModule.Logger()`. `New` refuses nil |
 | `Prefix` | no | where the routes are mounted. Defaults to `/impersonate` |
-| `PageSize` | no | how many records one page answers with. Defaults to 25, refused above 200 |
+| `TakeRedirectTo` | no | where the operator lands inside the account. Defaults to `/` |
+| `LeaveRedirectTo` | no | where they land back in their own. Defaults to `/` |
+| `TTL` | no | how long a visit lasts. Defaults to one hour, refused above 12 hours |
+| `UserType` | no | the kind the activity log names accounts by. Defaults to `user` |
+| `CanBeImpersonated` | no | the application's answer to whether an account may be gone into at all. Nil lets every account through except an operator's |
 
-`impersonate.Config{}` is a complete configuration. There is no tenant to pass:
-every route needs a session, and the tenant of every statement comes from
-`data.Tenant(g)`, off the Grant of whoever is signed in. Passing a value the
-request named — a path segment, a header, a subdomain read off the URL — is what
-`TestNoTenantIsReadOutOfTheRequest` fails on in the package. In an application
-the same mistake is `aru doctor`'s `tenant-from-request`; in a package nothing
-but the package's own suite looks.
+There is no tenant to pass: every route needs a session, and the tenant of
+every statement comes from `data.Tenant(g)`, off the Grant of whoever is signed
+in. Passing a value the request named — a path segment, a header, a subdomain
+read off the URL — is what `TestNoTenantIsReadOutOfTheRequest` fails on in the
+package. In an application the same mistake is `aru doctor`'s
+`tenant-from-request`; in a package nothing but the package's own suite looks.
 
-`PageSize` above 200 is an error from `New`, not a silent 200. A number somebody
-wrote and did not get is worse than a number somebody wrote and was told about.
+A `TTL` above 12 hours is an error from `New`, not a silent 12 hours. A number
+somebody wrote and did not get is worse than a number somebody wrote and was
+told about.
 
 ## Routes
 
 | method | path | name |
 | --- | --- | --- |
-| `GET` | `/impersonate` | `impersonate.index` |
-| `GET` | `/impersonate/{id}` | `impersonate.show` |
-| `POST` | `/impersonate` | `impersonate.store` |
+| `POST` | `/impersonate/take/{id}` | `impersonate` |
+| `POST` | `/impersonate/leave` | `impersonate.leave` |
+| `GET` | `/impersonate/history` | `impersonate.history` |
 
 Every route sits behind `RequireAuth`, mounted by the package itself. A request
 with no session is sent to `/auth/login` — 303, or `HX-Redirect` for an htmx
@@ -108,42 +131,37 @@ signs people in with.
 
 Build URLs from the names, never by writing the path a second time. `aru
 route:list` shows them grouped by module. Under a custom `Prefix` the paths move
-and the names do not.
+and the names do not. `impersonate.leave` is also the name hesape's `view.New`
+links the way back by.
 
-`GET /impersonate` answers `{"data": {"items": [...]}}`, and adds
-`"next_cursor"` beside `data` when a further page exists. Pass it back as
-`?cursor=`. A page shorter than `PageSize` is the last one and carries no
-cursor.
+`GET /impersonate/history` answers `{"items": [...], "total": n}` inside the
+framework's `data` envelope, newest first, 50 to a page (`?page=`), filtered
+by `?actor=`, `?target=` and `?status=`.
 
 `TenantID` is not in any response. That is deliberate: it names a customer's
 identifier and the response is a declared list of fields rather than the entity.
 
-## Every route refuses everybody, until you open the policy
+## Who may go in
 
-This is the state the package ships in, and it is not a bug to work around.
-`ImpersonatePolicy` denies every action and has no branch that allows one:
+`ImpersonatePolicy` denies unless a rule allows, and it ships these rules:
 
-```
-403 Forbidden
-```
+- `impersonate` and `impersonate.history`: a subject that holds the action, or
+  carries the role `impersonate.impersonator`. An application whose
+  permissions arandu-permission administers splices `impersonate.Actions()`
+  into `permission.Config.Actions` and puts both in the platform managers'
+  group; arandu-permission fills `Actions`, never `Roles`. One that decides by
+  role gives the role.
+- `impersonate.leave`: the operator the impersonation names.
+- Nobody, from inside an account, and no guest.
 
-is what a correctly installed, correctly migrated, correctly wired package
-answers to an administrator who is signed in, on day one.
+An account that holds the role or the action `impersonate` is an operator's and
+is never impersonated; `Config.CanBeImpersonated` keeps any other account out
+of reach.
 
-Opening an action means writing the rule that opens it, in the package's
-`policy.go`, inside the block that says so:
-
-```go
-	// arandu:begin custom
-	if a == ImpersonateHistory && (s.ID == record.ID || s.HasRole("admin")) {
-		return nil
-	}
-	// arandu:end custom
-```
-
-What is not written there stays closed, including every action added later.
-There are three actions — `ImpersonateTake`, `ImpersonateLeave`, `ImpersonateHistory` —
-and opening one opens exactly one.
+**Symptom to recognise:** a platform manager gets 403 from
+`POST /impersonate/take/{id}`. The subject holds neither the action nor the
+role — with arandu-permission, the action is missing from the group or from
+`permission.Config.Actions`.
 
 **Do not open it from the application.** There is no hook, no override and no
 config flag for the policy, and adding one would be a second place where

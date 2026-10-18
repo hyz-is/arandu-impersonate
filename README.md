@@ -160,6 +160,7 @@ An account that holds the role or the action `impersonate` is an operator's
 | `LeaveRedirectTo` | no | where they land back in their own. Defaults to `/`. |
 | `TTL` | no | how long a visit lasts. Defaults to one hour; at most 12 hours. |
 | `UserType` | no | the kind the activity log names accounts by. Defaults to `user`. |
+| `CanBeImpersonated` | no | whether an account may be gone into at all. Nil lets every account through except an operator's. |
 
 ## The data path
 

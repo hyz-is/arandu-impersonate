@@ -23,6 +23,12 @@ An account holding the action `impersonate` is now refused as a target with
 `ErrNotImpersonable`, as one carrying the role was. An application that let a
 manager holding only the action be impersonated sees that refusal now.
 
+### The package skill
+
+`Config.Targets` and `Config.Activity` are required, as they were in v0.1.0:
+the `impersonate-package` skill said otherwise, and `aru skills:sync` brings
+the corrected one. Nothing changes in code that already passed both.
+
 ## v0.1.0
 
 The first release, and the successor of hyz-is/arandu-inspect v0.1.0, which is

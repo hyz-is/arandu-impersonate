@@ -644,3 +644,29 @@ func packageRoot(t *testing.T) string {
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
+
+// TestThePackageSkillNamesTheRequiredConfig holds the package skill to what
+// New refuses. It once said no Config field was required and wired
+// impersonate.Config{}, which New refuses for its nil Targets and Activity.
+func TestThePackageSkillNamesTheRequiredConfig(t *testing.T) {
+	t.Parallel()
+
+	root := packageRoot(t)
+	for _, path := range []string{".agents/skills/impersonate-package/SKILL.md", "README.md"} {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		text := string(body)
+		for _, field := range []string{"Targets", "Activity"} {
+			if !regexp.MustCompile("(?m)^\\| `" + field + "` \\| (\\*\\*)?yes").MatchString(text) {
+				t.Errorf("%s does not mark Config.%s as required", path, field)
+			}
+		}
+		for _, stale := range []string{"none of them required", "impersonate.New(impersonate.Config{}, db, sessions)", "`PageSize`"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still says %q", path, stale)
+			}
+		}
+	}
+}

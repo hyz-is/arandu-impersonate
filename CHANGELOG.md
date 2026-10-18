@@ -29,6 +29,15 @@ a release is corrected by another release and never by moving a tag.
 - An account holding the action `impersonate` is an operator's and is never
   impersonated, as an account carrying `ImpersonatorRole` already was.
 
+### Documentation
+
+- The `impersonate-package` skill said no `Config` field was required and wired
+  `impersonate.Config{}`, which `New` refuses: `Targets` and `Activity` are
+  required. It now wires both, lists every field, the three routes this
+  package registers and the rules its policy ships, in place of the template
+  routes, `PageSize` and the "refuses everybody" policy it still described. The
+  README lists `CanBeImpersonated`.
+
 ## [0.1.0] - 2026-10-13
 
 The first release: laravel-impersonate for Arandu, with every act logged.
