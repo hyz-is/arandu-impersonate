@@ -14,7 +14,7 @@ installing this package unsafe while looking like working code.
 
 | action | allowed to |
 | --- | --- |
-| `ImpersonateTake` (`impersonate`) | a subject that holds the action, or carries `ImpersonatorRole` |
+| `ImpersonateTake` (`impersonate.take`) | a subject that holds the action, or carries `ImpersonatorRole` |
 | `ImpersonateHistory` (`impersonate.history`) | a subject that holds the action, or carries `ImpersonatorRole` |
 | `ImpersonateLeave` (`impersonate.leave`) | the operator the impersonation names, with or without the role or the action |
 

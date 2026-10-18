@@ -12,7 +12,7 @@ import (
 // everything.
 const (
 	// ImpersonateTake is an operator going into somebody's account.
-	ImpersonateTake security.Action = "impersonate"
+	ImpersonateTake security.Action = "impersonate.take"
 	// ImpersonateLeave is the operator going back to their own account.
 	ImpersonateLeave security.Action = "impersonate.leave"
 	// ImpersonateHistory is reading who went into which account, and when.

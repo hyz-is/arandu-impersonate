@@ -10,6 +10,12 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-18
+
+### Fixed
+
+- `ImpersonateTake` is now `impersonate.take`. v0.2.0 named it `impersonate`, which `hyz-is/arandu-permission` refuses in a catalogue because it is not in `module.verb` form, so the action could not be granted through it as the README said.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added

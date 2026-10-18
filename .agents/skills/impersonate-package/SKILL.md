@@ -154,7 +154,7 @@ identifier and the response is a declared list of fields rather than the entity.
 - `impersonate.leave`: the operator the impersonation names.
 - Nobody, from inside an account, and no guest.
 
-An account that holds the role or the action `impersonate` is an operator's and
+An account that holds the role or the action `impersonate.take` is an operator's and
 is never impersonated; `Config.CanBeImpersonated` keeps any other account out
 of reach.
 

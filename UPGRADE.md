@@ -1,5 +1,9 @@
 # Upgrade Guide
 
+## v0.2.1
+
+An application that granted the action `impersonate` (only possible outside `arandu-permission`) grants `impersonate.take` instead; take the value from `ImpersonateTake` or `Actions()` rather than writing it. Applications that fill the role `impersonate.impersonator` change nothing.
+
 ## v0.2.0
 
 ### Platform managers can hold the actions instead of the role

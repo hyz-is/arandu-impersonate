@@ -22,7 +22,7 @@ unlogged.
 
 | laravel-impersonate | here |
 | --- | --- |
-| `canImpersonate()` | the policy: the action `impersonate` (`ImpersonateTake`) granted through arandu-permission, or the role `impersonate.impersonator` in an application that fills roles itself |
+| `canImpersonate()` | the policy: the action `impersonate.take` (`ImpersonateTake`) granted through arandu-permission, or the role `impersonate.impersonator` in an application that fills roles itself |
 | `canBeImpersonated()` | `Config.CanBeImpersonated`; an impersonator's account is never impersonated |
 | no impersonating yourself, nor from inside an impersonation | the same refusals |
 | routes `impersonate` and `impersonate.leave`, `take_redirect_to`, `leave_redirect_to` | the same names; `TakeRedirectTo`, `LeaveRedirectTo` |
@@ -146,7 +146,7 @@ Going into accounts and reading the history belong to the platform's managers
   role and fills `Roles` itself.
 
 Each action opens only itself: `impersonate` alone does not read the history.
-An account that holds the role or the action `impersonate` is an operator's
+An account that holds the role or the action `impersonate.take` is an operator's
 (`impersonate.IsOperator`) and is never impersonated.
 
 ## Configuration
