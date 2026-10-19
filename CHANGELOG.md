@@ -10,6 +10,22 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-19
+
+### Added
+
+- `Config.Middleware`: middleware the module's routes run after `RequireAuth`.
+  An application whose permissions arandu-permission administers mounts its
+  `Roles()` there.
+
+### Fixed
+
+- A platform manager granted `impersonate.take` through arandu-permission was
+  refused going in and reading the history: the routes run `RequireAuth`,
+  which puts the subject as the session stored it, without the actions
+  arandu-permission resolves on each request. With `Roles()` in
+  `Config.Middleware` the policy sees them.
+
 ## [0.2.1] - 2026-10-18
 
 ### Fixed

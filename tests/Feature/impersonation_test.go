@@ -173,3 +173,29 @@ func TestAManagerHoldingTheActionsGoesInAndIsNeverGoneInto(t *testing.T) {
 		t.Fatalf("an operator went into the account of a manager holding the action: %v", err)
 	}
 }
+
+func TestAManagerWhoseActionsAreResolvedPerRequestGoesInThroughTheMiddleware(t *testing.T) {
+	without := install(t)
+	rec, _ := without.do(t, http.MethodPost, impersonate.DefaultPrefix+"/take/ana", without.signIn(t, "resolvida"))
+	if rec.Code == http.StatusSeeOther {
+		t.Fatal("a manager whose session carries no actions went in without the middleware that resolves them")
+	}
+
+	w := install(t, resolved)
+	rec, cookies := w.do(t, http.MethodPost, impersonate.DefaultPrefix+"/take/ana", w.signIn(t, "resolvida"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/painel" {
+		t.Fatalf("a manager whose actions the middleware resolves going in answered %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec, _ = w.do(t, http.MethodGet, "/painel", cookies)
+	if rec.Body.String() != "ana|resolvida|writes" {
+		t.Fatalf("the panel inside the account says %q", rec.Body.String())
+	}
+	rec, cookies = w.do(t, http.MethodPost, impersonate.DefaultPrefix+"/leave", cookies)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("leaving answered %d", rec.Code)
+	}
+	rec, _ = w.do(t, http.MethodGet, impersonate.DefaultPrefix+"/history", cookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the history read back in her own account answered %d", rec.Code)
+	}
+}

@@ -98,6 +98,7 @@ route that authorized correctly. The migration has not run.
 | `TTL` | no | how long a visit lasts. Defaults to one hour, refused above 12 hours |
 | `UserType` | no | the kind the activity log names accounts by. Defaults to `user` |
 | `CanBeImpersonated` | no | the application's answer to whether an account may be gone into at all. Nil lets every account through except an operator's |
+| `Middleware` | no | runs on the module's routes after `RequireAuth`; an application whose permissions arandu-permission administers passes `permissionModule.Roles()`, or the policy sees no actions and refuses its platform managers |
 
 There is no tenant to pass: every route needs a session, and the tenant of
 every statement comes from `data.Tenant(g)`, off the Grant of whoever is signed

@@ -69,6 +69,14 @@ type Config struct {
 	// application's own entries use. Empty means DefaultUserType.
 	UserType string
 
+	// Middleware runs on the module's routes after RequireAuth, in order. An
+	// application whose permissions arandu-permission administers mounts its
+	// Roles() here: RequireAuth puts the subject as the session stored it --
+	// without the actions arandu-permission resolves on each request -- and
+	// without the actions the policy refuses a platform manager who holds
+	// impersonate.take. Nil runs nothing more.
+	Middleware []func(http.Handler) http.Handler
+
 	// CanBeImpersonated is the application's answer to whether an account may
 	// be impersonated at all -- laravel-impersonate's canBeImpersonated: a
 	// super admin's account, an account under legal hold. Nil lets every
@@ -94,6 +102,11 @@ func (c Config) Validate() error {
 	}
 	if c.Activity == nil {
 		return fmt.Errorf("impersonate: Config.Activity is nil: arandu-impersonate needs arandu-activitylog installed and registered in bootstrap/app.go; pass activityModule.Logger() here")
+	}
+	for i, mw := range c.Middleware {
+		if mw == nil {
+			return fmt.Errorf("impersonate: Config.Middleware[%d] is nil", i)
+		}
 	}
 	if c.TTL < 0 || c.TTL > MaxTTL {
 		return fmt.Errorf("impersonate: Config.TTL is %s, and has to be between 0 and %s, where 0 means %s", c.TTL, MaxTTL, DefaultTTL)

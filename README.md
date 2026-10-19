@@ -140,8 +140,10 @@ Going into accounts and reading the history belong to the platform's managers
   how an application whose permissions
   [arandu-permission](https://github.com/hyz-is/arandu-permission) administers
   grants it, because arandu-permission fills the Subject's `Actions` and never
-  its `Roles`. Splice `impersonate.Actions()` into `permission.Config.Actions`
-  and put both in the platform managers' group; or
+  its `Roles`. Splice `impersonate.Actions()` into `permission.Config.Actions`,
+  put both in the platform managers' group, and pass
+  `Middleware: []func(http.Handler) http.Handler{permissionModule.Roles()}` so
+  the module's routes see the actions it resolves on each request; or
 - carries the role `impersonate.impersonator`, in an application that decides by
   role and fills `Roles` itself.
 
@@ -161,6 +163,7 @@ An account that holds the role or the action `impersonate.take` is an operator's
 | `TTL` | no | how long a visit lasts. Defaults to one hour; at most 12 hours. |
 | `UserType` | no | the kind the activity log names accounts by. Defaults to `user`. |
 | `CanBeImpersonated` | no | whether an account may be gone into at all. Nil lets every account through except an operator's. |
+| `Middleware` | no | runs on the module's routes after `RequireAuth`: arandu-permission's `Roles()`, where it administers the actions. |
 
 ## The data path
 

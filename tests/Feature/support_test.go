@@ -14,6 +14,7 @@ import (
 	fhttp "github.com/arandu-io/framework/http"
 	"github.com/arandu-io/framework/http/middleware"
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 	hedatabase "github.com/arandu-io/hesape/database"
 	sqliteconnector "github.com/arandu-io/hesape/database/connectors/sqlite"
 	activitylog "github.com/hyz-is/arandu-activitylog"
@@ -38,6 +39,22 @@ var people = map[string]security.Subject{
 	// A platform manager whose permissions arandu-permission administers: the
 	// actions, and no role.
 	"gestora": {ID: "gestora", Tenant: tenant, Verified: true, Actions: []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory}},
+	// The same manager as an application that resolves actions on each
+	// request keeps her in the session: no actions at all.
+	"resolvida": {ID: "resolvida", Tenant: tenant, Verified: true},
+}
+
+// resolved is what arandu-permission's Roles() does for "resolvida": the
+// actions read from the permission store on each request, onto the subject
+// RequireAuth put on the request.
+func resolved(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if subject, ok := auth.SubjectFrom(r.Context()); ok && subject.ID == "resolvida" && subject.Impersonator == nil {
+			subject.Actions = []security.Action{impersonate.ImpersonateTake, impersonate.ImpersonateHistory}
+			r = r.WithContext(auth.WithSubject(r.Context(), subject))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // targets answers the application's accounts.
@@ -55,7 +72,7 @@ type world struct {
 	now      *time.Time
 }
 
-func install(t *testing.T) *world {
+func install(t *testing.T, resolvers ...func(http.Handler) http.Handler) *world {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "impersonate.sqlite")
 	handle, err := sql.Open(sqliteconnector.SQLiteConnector{}.DriverName(), "file:"+path+dsn)
@@ -77,6 +94,7 @@ func install(t *testing.T) *world {
 		// The application keeps its super admins out of reach, as
 		// laravel-impersonate's canBeImpersonated would.
 		CanBeImpersonated: func(_ context.Context, target security.Subject) bool { return !target.HasRole("super-admin") }, TakeRedirectTo: "/painel", LeaveRedirectTo: "/admin/usuarios", TTL: 30 * time.Minute,
+		Middleware: resolvers,
 	}, db, sessions)
 	if err != nil {
 		t.Fatal(err)

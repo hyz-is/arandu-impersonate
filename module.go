@@ -74,12 +74,17 @@ func (m *Module) Service() *ImpersonateService { return m.svc }
 // Name is the module identifier.
 func (m *Module) Name() string { return "impersonate" }
 
-// Routes registers the module's routes, behind RequireAuth.
+// Routes registers the module's routes, behind RequireAuth and then the
+// application's Config.Middleware.
 //
 // impersonate.leave is the name hesape's view.New links the way back by, so the
 // bar every page draws posts here without the application spelling the path.
 func (m *Module) Routes(r *fhttp.Router) {
-	r = r.Group("", middleware.RequireAuth(m.sessions))
+	guards := []fhttp.Middleware{middleware.RequireAuth(m.sessions)}
+	for _, mw := range m.cfg.Middleware {
+		guards = append(guards, mw)
+	}
+	r = r.Group("", guards...)
 
 	r.Action(stdhttp.MethodPost, m.cfg.Prefix+"/take/{id}", m.start).Name("impersonate")
 	r.Action(stdhttp.MethodPost, m.cfg.Prefix+"/leave", m.leave).Name("impersonate.leave")

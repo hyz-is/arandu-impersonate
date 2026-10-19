@@ -67,6 +67,7 @@ func TestNewRefusesAWiringThatCannotWork(t *testing.T) {
 		"a deadline too long":  {Targets: targets, Activity: activity.Logger(), TTL: impersonate.MaxTTL + time.Minute},
 		"a landing elsewhere":  {Targets: targets, Activity: activity.Logger(), TakeRedirectTo: "//evil.example"},
 		"a prefix that is bad": {Targets: targets, Activity: activity.Logger(), Prefix: "/x{"},
+		"a nil middleware":     {Targets: targets, Activity: activity.Logger(), Middleware: []func(http.Handler) http.Handler{nil}},
 	} {
 		if _, err := impersonate.New(cfg, handle, sessions); err == nil {
 			t.Errorf("a configuration with %s was accepted", name)

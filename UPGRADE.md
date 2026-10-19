@@ -1,5 +1,23 @@
 # Upgrade Guide
 
+## v0.2.2
+
+An application whose permissions arandu-permission administers, and that
+grants its platform managers `impersonate.take` and `impersonate.history`,
+hands the module the middleware that resolves them:
+
+```go
+	impersonate.Config{
+		// ...
+		Middleware: []func(http.Handler) http.Handler{permissionModule.Roles()},
+	}
+```
+
+Without it the routes see the subject the session stored, which carries no
+actions, and refuse the manager. An application that fills `Roles` with
+`impersonate.impersonator` itself, or stores the actions in the session,
+changes nothing.
+
 ## v0.2.1
 
 An application that granted the action `impersonate` (only possible outside `arandu-permission`) grants `impersonate.take` instead; take the value from `ImpersonateTake` or `Actions()` rather than writing it. Applications that fill the role `impersonate.impersonator` change nothing.
