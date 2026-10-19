@@ -3,10 +3,13 @@ package impersonate
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/framework/validation"
 	"github.com/arandu-io/hesape/auth"
 	activitylog "github.com/hyz-is/arandu-activitylog"
 )
@@ -41,6 +44,8 @@ type ImpersonateService struct {
 	activity *activitylog.Logger
 	ttl      time.Duration
 	userType string
+	// requireReason refuses Take without a reason; see Config.RequireReason.
+	requireReason bool
 }
 
 // NewImpersonateService returns the use cases over a database handle. New wires
@@ -56,7 +61,16 @@ func NewImpersonateService(db *data.DB) *ImpersonateService {
 //
 // The operator may not go into their own account, into another operator's,
 // or anywhere from inside an account already.
-func (s *ImpersonateService) Take(ctx context.Context, actor security.Subject, targetID string) (security.Subject, *Impersonation, error) {
+//
+// reason is why the operator goes in, kept on the impersonation and on its
+// activity entry. Where Config.RequireReason is set an empty one is refused,
+// and one longer than MaxReasonLen always is, as validation.Errors on the
+// field "reason", which the router answers as a form's refusal.
+func (s *ImpersonateService) Take(ctx context.Context, actor security.Subject, targetID, reason string) (security.Subject, *Impersonation, error) {
+	reason = strings.TrimSpace(reason)
+	if utf8.RuneCountInString(reason) > MaxReasonLen || (s.requireReason && reason == "") {
+		return security.Subject{}, nil, validation.Errors{"reason": {ReasonRequiredMessage}}
+	}
 	g, err := security.Authorize(ctx, s.policy, actor, ImpersonateTake, Impersonation{})
 	if err != nil {
 		return security.Subject{}, nil, err
@@ -88,16 +102,19 @@ func (s *ImpersonateService) Take(ctx context.Context, actor security.Subject, t
 	}
 	now := s.now()
 	record.TenantID, record.ActorID, record.TargetID = data.Tenant(g), actor.ID, target.ID
-	record.Acting, record.Status = true, Open
+	record.Acting, record.Status, record.Reason = true, Open, reason
 	record.StartedAt, record.ExpiresAt, record.ClosedAt = now, now.Add(s.ttl), now
 	record.CreatedAt, record.UpdatedAt = now, now
 	if _, err := record.Save(ctx, g); err != nil {
 		return security.Subject{}, nil, err
 	}
-	if _, err := s.activity.In(ctx, g, LogName).Event("impersonation.taken").
+	entry := s.activity.In(ctx, g, LogName).Event("impersonation.taken").
 		OnRef(activitylog.Ref{Type: s.userType, ID: target.ID}).
-		WithProperty("impersonation", record.ID).WithProperty("expires_at", record.ExpiresAt.Format(time.RFC3339)).
-		Log("entrou na conta para inspecionar"); err != nil {
+		WithProperty("impersonation", record.ID).WithProperty("expires_at", record.ExpiresAt.Format(time.RFC3339))
+	if reason != "" {
+		entry = entry.WithProperty("reason", reason)
+	}
+	if _, err := entry.Log("entrou na conta para inspecionar"); err != nil {
 		return security.Subject{}, nil, err
 	}
 	return acting, record, nil

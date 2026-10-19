@@ -1,5 +1,23 @@
 # Upgrade Guide
 
+## v0.3.0
+
+Run the migration (`aru migrate`): it adds the column `reason` to
+`impersonations`.
+
+A call to `ImpersonateService.Take` (`(*ImpersonateService).Take`) passes the
+reason as its fourth argument, `""` where there is none:
+
+```go
+	acting, record, err := impersonations.Take(ctx, operator, userID, "chamado 4512")
+```
+
+An application that asks its operators why they go in sets
+`Config.RequireReason` and adds a field named `reason` to the form that posts
+to the route `impersonate`; the router needs its flash
+(`Router.WithFlash`), as every form of the application does, to send a refusal
+back with the message on the field.
+
 ## v0.2.2
 
 An application whose permissions arandu-permission administers, and that

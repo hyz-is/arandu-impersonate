@@ -74,6 +74,12 @@ type world struct {
 
 func install(t *testing.T, resolvers ...func(http.Handler) http.Handler) *world {
 	t.Helper()
+	return installConfigured(t, nil, resolvers...)
+}
+
+// installConfigured is install with a change to the module's configuration.
+func installConfigured(t *testing.T, configure func(*impersonate.Config), resolvers ...func(http.Handler) http.Handler) *world {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "impersonate.sqlite")
 	handle, err := sql.Open(sqliteconnector.SQLiteConnector{}.DriverName(), "file:"+path+dsn)
 	if err != nil {
@@ -89,13 +95,17 @@ func install(t *testing.T, resolvers ...func(http.Handler) http.Handler) *world 
 	if err != nil {
 		t.Fatal(err)
 	}
-	module, err := impersonate.New(impersonate.Config{
+	cfg := impersonate.Config{
 		Targets: targets, Activity: activity.Logger(),
 		// The application keeps its super admins out of reach, as
 		// laravel-impersonate's canBeImpersonated would.
 		CanBeImpersonated: func(_ context.Context, target security.Subject) bool { return !target.HasRole("super-admin") }, TakeRedirectTo: "/painel", LeaveRedirectTo: "/admin/usuarios", TTL: 30 * time.Minute,
 		Middleware: resolvers,
-	}, db, sessions)
+	}
+	if configure != nil {
+		configure(&cfg)
+	}
+	module, err := impersonate.New(cfg, db, sessions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +116,8 @@ func install(t *testing.T, resolvers ...func(http.Handler) http.Handler) *world 
 		}
 	}
 
-	router := fhttp.NewRouter()
+	// The flash is where a refused form's messages go, as in an application.
+	router := fhttp.NewRouter().WithFlash(security.NewFlash([]byte(appKey), false))
 	module.Routes(router.ForModule(module.Name()))
 	// The application's panel: who the session says is here, and whether
 	// they could write.
@@ -157,8 +168,17 @@ func (w *world) signIn(t *testing.T, id string) []*http.Cookie {
 // cookies the browser holds after it.
 func (w *world) do(t *testing.T, method, target string, cookies []*http.Cookie) (*httptest.ResponseRecorder, []*http.Cookie) {
 	t.Helper()
-	req := httptest.NewRequest(method, target, strings.NewReader(""))
+	return w.send(t, method, target, "", nil, cookies)
+}
+
+// send is do with a form body and headers.
+func (w *world) send(t *testing.T, method, target, form string, headers map[string]string, cookies []*http.Cookie) (*httptest.ResponseRecorder, []*http.Cookie) {
+	t.Helper()
+	req := httptest.NewRequest(method, target, strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}

@@ -63,7 +63,7 @@ func New(cfg Config, db *data.DB, sessions *security.SessionStore) (*Module, err
 	cfg = cfg.withDefaults()
 	svc := NewImpersonateService(db)
 	svc.targets, svc.activity, svc.ttl, svc.userType = cfg.Targets, cfg.Activity, cfg.TTL, cfg.UserType
-	svc.allowed = cfg.CanBeImpersonated
+	svc.allowed, svc.requireReason = cfg.CanBeImpersonated, cfg.RequireReason
 	return &Module{cfg: cfg, svc: svc, sessions: sessions}, nil
 }
 
@@ -95,7 +95,9 @@ func (m *Module) Routes(r *fhttp.Router) {
 // inside it.
 func (m *Module) start(ctx *fhttp.Context) error {
 	who, _ := ctx.User()
-	acting, record, err := m.svc.Take(ctx.Ctx(), who, ctx.Param("id"))
+	// A refused reason is validation.Errors: a page goes back with the
+	// message on the field, a client that wants JSON gets 422.
+	acting, record, err := m.svc.Take(ctx.Ctx(), who, ctx.Param("id"), ctx.Request.PostFormValue("reason"))
 	if err != nil {
 		return err
 	}
@@ -227,6 +229,9 @@ func impersonationFields(i *Impersonation) map[string]any {
 	if i.Status == Closed {
 		out["closed_at"], out["end_reason"] = i.ClosedAt.UTC().Format(time.RFC3339), i.EndReason
 	}
+	if i.Reason != "" {
+		out["reason"] = i.Reason
+	}
 	return out
 }
 
@@ -249,7 +254,7 @@ func (r historyResource) With() map[string]any { return nil }
 
 // Migrations declares the schema this module owns.
 func (m *Module) Migrations() []foundation.Migration {
-	return []foundation.Migration{createImpersonations{}}
+	return []foundation.Migration{createImpersonations{}, addReasonToImpersonations{}}
 }
 
 var _ migrations.ReversibleMigration = createImpersonations{}
@@ -283,4 +288,28 @@ func (createImpersonations) Up(ctx context.Context, conn migrations.Connection) 
 // Down drops the table.
 func (createImpersonations) Down(ctx context.Context, conn migrations.Connection) error {
 	return conn.Schema().DropIfExists(ctx, impersonationsTable)
+}
+
+var _ migrations.ReversibleMigration = addReasonToImpersonations{}
+
+// addReasonToImpersonations keeps why the operator went in.
+type addReasonToImpersonations struct{ migrations.BaseMigration }
+
+// GetName is the migration's identity, and it carries the order.
+func (addReasonToImpersonations) GetName() string {
+	return "20261019_0001_add_reason_to_impersonations"
+}
+
+// Up adds the column, empty for the visits made before it.
+func (addReasonToImpersonations) Up(ctx context.Context, conn migrations.Connection) error {
+	return conn.Schema().Table(ctx, impersonationsTable, func(table *schema.Blueprint) {
+		table.String("reason", MaxReasonLen*4).Default("")
+	})
+}
+
+// Down drops the column.
+func (addReasonToImpersonations) Down(ctx context.Context, conn migrations.Connection) error {
+	return conn.Schema().Table(ctx, impersonationsTable, func(table *schema.Blueprint) {
+		table.DropColumn("reason")
+	})
 }

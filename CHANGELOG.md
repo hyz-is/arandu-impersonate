@@ -10,6 +10,24 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
+### Added
+
+- A reason for going into an account. The take route reads the form field
+  `reason`; it is kept on the impersonation (`Impersonation.Reason`, the
+  history's `reason`) and as the property `reason` of the entry of going in.
+  At most `MaxReasonLen` (500) characters.
+- `Config.RequireReason`: refuses going in without a reason, as
+  `validation.Errors` on the field `reason`.
+- Migration `20261019_0001_add_reason_to_impersonations`: the column `reason`
+  on `impersonations`, empty for the visits made before it.
+
+### Changed
+
+- `ImpersonateService.Take` takes the reason as its fourth argument. Pass `""`
+  where there is none.
+
 ## [0.2.2] - 2026-10-19
 
 ### Added

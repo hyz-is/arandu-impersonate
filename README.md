@@ -164,6 +164,7 @@ An account that holds the role or the action `impersonate.take` is an operator's
 | `UserType` | no | the kind the activity log names accounts by. Defaults to `user`. |
 | `CanBeImpersonated` | no | whether an account may be gone into at all. Nil lets every account through except an operator's. |
 | `Middleware` | no | runs on the module's routes after `RequireAuth`: arandu-permission's `Roles()`, where it administers the actions. |
+| `RequireReason` | no | refuses going in without a reason. The take route reads the form field `reason`; a refusal is `validation.Errors` on that field, which the router answers as a form's refusal (the flash and back, or 422 for JSON). A reason given is kept on the impersonation and on the entry of going in, with or without this. |
 
 ## The data path
 

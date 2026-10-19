@@ -140,7 +140,7 @@ func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
 
 	service := impersonate.NewImpersonateService(nil)
 	ctx := context.Background()
-	if _, _, err := service.Take(ctx, member(), "user-2"); !errors.Is(err, security.ErrForbidden) {
+	if _, _, err := service.Take(ctx, member(), "user-2", ""); !errors.Is(err, security.ErrForbidden) {
 		t.Fatalf("Start reached the Model before the policy refusal: %v", err)
 	}
 	if _, _, err := service.History(ctx, member(), impersonate.HistoryQuery{}); !errors.Is(err, security.ErrForbidden) {

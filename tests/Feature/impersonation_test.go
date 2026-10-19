@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/framework/validation"
 
 	impersonate "github.com/hyz-is/arandu-impersonate"
 )
@@ -68,24 +70,24 @@ func TestTheRefusals(t *testing.T) {
 	}
 	ctx := context.Background()
 	svc := w.module.Service()
-	if _, _, err := svc.Take(ctx, people["op-1"], "op-2"); !errors.Is(err, impersonate.ErrNotImpersonable) {
+	if _, _, err := svc.Take(ctx, people["op-1"], "op-2", ""); !errors.Is(err, impersonate.ErrNotImpersonable) {
 		t.Fatalf("an operator went into another operator's account: %v", err)
 	}
-	if _, _, err := svc.Take(ctx, people["op-1"], "globex"); !errors.Is(err, impersonate.ErrNotFound) {
+	if _, _, err := svc.Take(ctx, people["op-1"], "globex", ""); !errors.Is(err, impersonate.ErrNotFound) {
 		t.Fatalf("an operator went into another tenant's account: %v", err)
 	}
-	if _, _, err := svc.Take(ctx, people["op-1"], "nobody"); !errors.Is(err, impersonate.ErrNotFound) {
+	if _, _, err := svc.Take(ctx, people["op-1"], "nobody", ""); !errors.Is(err, impersonate.ErrNotFound) {
 		t.Fatalf("an operator went into an account that does not exist: %v", err)
 	}
-	if _, _, err := svc.Take(ctx, people["op-1"], "op-1"); err == nil {
+	if _, _, err := svc.Take(ctx, people["op-1"], "op-1", ""); err == nil {
 		t.Fatal("an operator went into their own account")
 	}
 	// From inside an account, nowhere else.
-	inside, _, err := svc.Take(ctx, people["op-1"], "ana")
+	inside, _, err := svc.Take(ctx, people["op-1"], "ana", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.Take(ctx, inside, "bruno"); !errors.Is(err, security.ErrForbidden) {
+	if _, _, err := svc.Take(ctx, inside, "bruno", ""); !errors.Is(err, security.ErrForbidden) {
 		t.Fatalf("an operator inside one account went into another: %v", err)
 	}
 	// Leaving from outside an impersonation is refused.
@@ -127,7 +129,7 @@ func TestAnImpersonationPastItsDeadlineTakesTheOperatorBack(t *testing.T) {
 
 func TestTheApplicationKeepsAccountsOutOfReach(t *testing.T) {
 	w := install(t)
-	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "chefe"); !errors.Is(err, impersonate.ErrNotImpersonable) {
+	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "chefe", ""); !errors.Is(err, impersonate.ErrNotImpersonable) {
 		t.Fatalf("an account the application protects was impersonated: %v", err)
 	}
 }
@@ -169,7 +171,7 @@ func TestAManagerHoldingTheActionsGoesInAndIsNeverGoneInto(t *testing.T) {
 		t.Fatalf("a manager holding the history action read it with %d", rec.Code)
 	}
 
-	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "gestora"); !errors.Is(err, impersonate.ErrNotImpersonable) {
+	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "gestora", ""); !errors.Is(err, impersonate.ErrNotImpersonable) {
 		t.Fatalf("an operator went into the account of a manager holding the action: %v", err)
 	}
 }
@@ -197,5 +199,53 @@ func TestAManagerWhoseActionsAreResolvedPerRequestGoesInThroughTheMiddleware(t *
 	rec, _ = w.do(t, http.MethodGet, impersonate.DefaultPrefix+"/history", cookies)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the history read back in her own account answered %d", rec.Code)
+	}
+}
+
+// Where the application asks for one, going in needs a reason: without it the
+// page goes back with the message on the field and a client that wants JSON
+// gets 422, and nobody went in. The reason given is kept on the impersonation
+// and on the entry of going in.
+func TestAReasonIsAskedForWhereTheApplicationRequiresOne(t *testing.T) {
+	w := installConfigured(t, func(cfg *impersonate.Config) { cfg.RequireReason = true })
+	cookies := w.signIn(t, "op-1")
+	take := impersonate.DefaultPrefix + "/take/ana"
+
+	rec, cookies := w.send(t, http.MethodPost, take, "reason=+++", map[string]string{"Referer": "/admin/contas/ana"}, cookies)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") == "/painel" {
+		t.Fatalf("going in without a reason answered %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec, cookies = w.send(t, http.MethodPost, take, "reason="+strings.Repeat("a", impersonate.MaxReasonLen+1), map[string]string{"Accept": "application/json"}, cookies)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "reason") {
+		t.Fatalf("a reason too long answered %d %s", rec.Code, rec.Body.String())
+	}
+	if open, err := w.module.Service().OpenNow(context.Background(), people["op-2"]); err != nil || len(open) != 0 {
+		t.Fatalf("a refused take left %v open, %v", open, err)
+	}
+	var refused validation.Errors
+	if _, _, err := w.module.Service().Take(context.Background(), people["op-1"], "ana", ""); !errors.As(err, &refused) || len(refused["reason"]) == 0 {
+		t.Fatalf("Take without a reason answered %v, want the field reason refused", err)
+	}
+
+	rec, _ = w.send(t, http.MethodPost, take, "reason=+chamado+4512%3A+cobran%C3%A7a+em+dobro+", nil, cookies)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/painel" {
+		t.Fatalf("going in with a reason answered %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rows, total, err := w.module.Service().History(context.Background(), people["op-1"], impersonate.HistoryQuery{})
+	if err != nil || total != 1 || rows[0].Reason != "chamado 4512: cobrança em dobro" {
+		t.Fatalf("the history is %d, %+v, %v", total, rows, err)
+	}
+	entries := w.entries(t)
+	if len(entries) != 1 || entries[0].Properties()["reason"] != "chamado 4512: cobrança em dobro" {
+		t.Fatalf("the entry of going in is %+v", entries)
+	}
+}
+
+// Without RequireReason a reason is still kept when one is given.
+func TestAReasonGivenIsKeptWhereNoneIsRequired(t *testing.T) {
+	w := install(t)
+	_, record, err := w.module.Service().Take(context.Background(), people["op-1"], "ana", "  conferir o cadastro ")
+	if err != nil || record.Reason != "conferir o cadastro" {
+		t.Fatalf("Take kept %+v, %v", record, err)
 	}
 }

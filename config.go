@@ -19,6 +19,11 @@ const (
 	DefaultTTL = time.Hour
 	// MaxTTL is the longest an impersonation may be configured to last.
 	MaxTTL = 12 * time.Hour
+	// MaxReasonLen is the longest reason, in characters, an impersonation
+	// keeps.
+	MaxReasonLen = 500
+	// ReasonRequiredMessage is what a refused reason says on its field.
+	ReasonRequiredMessage = "Informe o motivo da entrada na conta (até 500 caracteres)."
 	// DefaultUserType is the kind the activity log names an account by.
 	DefaultUserType = "user"
 	// LogName is the activity log the package's own entries go in.
@@ -76,6 +81,13 @@ type Config struct {
 	// without the actions the policy refuses a platform manager who holds
 	// impersonate.take. Nil runs nothing more.
 	Middleware []func(http.Handler) http.Handler
+
+	// RequireReason refuses going into an account without a reason: the take
+	// route reads it from the form field "reason", Take refuses an empty one
+	// as validation.Errors on that field, and the reason is kept on the impersonation and on
+	// its activity entry. False takes a reason when one is given and goes in
+	// without one otherwise.
+	RequireReason bool
 
 	// CanBeImpersonated is the application's answer to whether an account may
 	// be impersonated at all -- laravel-impersonate's canBeImpersonated: a

@@ -37,6 +37,10 @@ type Impersonation struct {
 	ClosedAt  time.Time `db:"closed_at"`
 	EndReason string    `db:"end_reason"`
 
+	// Reason is why the operator went in, as they wrote it; empty when the
+	// application does not ask for one.
+	Reason string `db:"reason"`
+
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`
 }
