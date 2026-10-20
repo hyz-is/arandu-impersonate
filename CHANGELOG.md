@@ -10,6 +10,27 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
+### Added
+
+- The migration `20261020_0001_widen_impersonations_time_precision`: the
+  visits' `started_at`, `expires_at`, `closed_at`, `created_at` and
+  `updated_at`, which an earlier framework default created in whole seconds --
+  PostgreSQL rounds a value to the second there, MySQL truncates it -- are
+  raised to microseconds through Hesape's `migrations.WidenTimePrecision`, so a
+  visit reads back the instants it was written with and visits started within
+  one second are ordered by the instant and not by the identifier alone. A
+  column already in microseconds is left alone, SQLite has nothing to widen,
+  and the rollback keeps the columns wide.
+
+### Changed
+
+- Requires Framework v0.58.0 and Hesape v0.69.0, where a date-time column is
+  declared in microseconds by default and `migrations.WidenTimePrecision`
+  exists. The manifest's framework floor is `>= 0.58`. The suite requires the
+  PostgreSQL connector v0.11.0, and CI runs it against a PostgreSQL service.
+
 ## [0.3.0] - 2026-10-19
 
 ### Added

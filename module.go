@@ -254,7 +254,19 @@ func (r historyResource) With() map[string]any { return nil }
 
 // Migrations declares the schema this module owns.
 func (m *Module) Migrations() []foundation.Migration {
-	return []foundation.Migration{createImpersonations{}, addReasonToImpersonations{}}
+	return []foundation.Migration{createImpersonations{}, addReasonToImpersonations{}, widenImpersonationsTimePrecision}
+}
+
+// widenImpersonationsTimePrecision raises the visits' five instants to
+// microseconds where an earlier framework default created them in whole
+// seconds, which PostgreSQL rounds a value to and MySQL truncates it to: a
+// visit read back did not start, expire or close at the instant it was written,
+// and visits started in one second fell to the identifier alone in the
+// history's newest-first order. A column already in microseconds is left
+// alone, SQLite has nothing to widen, and the rollback keeps the columns wide.
+var widenImpersonationsTimePrecision = migrations.WidenTimePrecision{
+	Name:   "20261020_0001_widen_impersonations_time_precision",
+	Tables: []string{impersonationsTable},
 }
 
 var _ migrations.ReversibleMigration = createImpersonations{}

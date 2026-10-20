@@ -1,5 +1,20 @@
 # Upgrade Guide
 
+## v0.3.1
+
+Run `aru migrate`: `20261020_0001_widen_impersonations_time_precision` raises
+the five instants of `impersonations` from whole seconds to microseconds where
+a release before Hesape v0.67.0 created them so. On PostgreSQL it changes the
+type modifier only and rewrites neither the table nor its indexes; on MySQL the
+columns are restated with `MODIFY`, which may copy the table. No visit changes.
+A process still running the previous binary may see PostgreSQL refuse a cached
+plan over the table once per connection ("cached plan must not change result
+type"): migrate before the new binary starts.
+
+This release selects Framework v0.58.0 and Hesape v0.69.0; follow their upgrade
+notes between the versions you had and these. No symbol of this package
+changes.
+
 ## v0.3.0
 
 Run the migration (`aru migrate`): it adds the column `reason` to

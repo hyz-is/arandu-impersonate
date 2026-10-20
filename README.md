@@ -93,7 +93,7 @@ go get github.com/hyz-is/arandu-activitylog@v0.3.0
 go get github.com/hyz-is/arandu-impersonate
 ```
 
-It needs hesape v0.58.0 or newer.
+It needs Framework v0.58.0 and hesape v0.69.0 or newer.
 
 ## Wire it
 
@@ -197,6 +197,16 @@ GOWORK=off go test ./... -race
 The feature suite runs the whole visit in one browser against SQLite: going
 in, acting as the owner, coming back, the deadline, and every refusal, with
 the activity log's entries checked; the rules were checked by mutation.
+
+The widening of the visits' instants is a statement PostgreSQL runs and SQLite
+has no use for, so it is proven against a server when one is named:
+
+```bash
+ARANDU_TEST_POSTGRES_DSN=postgres://user:password@localhost:5432/impersonate_test?sslmode=disable \
+  GOWORK=off go test ./... -race
+```
+
+Without it, that one test is skipped.
 
 ## Licence
 
