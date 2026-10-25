@@ -1,5 +1,37 @@
 # Upgrade Guide
 
+## Unreleased
+
+Go 1.26.10 is the floor: `go.mod` declares `go 1.26.10`, because every
+vulnerability an Arandu application reaches is in the standard library and is
+fixed there (crypto/x509, net/http HTTP/2 and CONNECT, html/template,
+net/textproto, crypto/tls). A build on an older toolchain fetches 1.26.10 or
+fails when `GOTOOLCHAIN=local`.
+
+This release selects Framework v0.66.0, Hesape v0.85.0 and arandu-activitylog
+v0.6.0; read their upgrade guides from the versions the application required
+before (Framework v0.58.0, Hesape v0.69.0 and arandu-activitylog v0.3.0 in
+v0.3.1).
+
+The session store must have the application's `SubjectResolver`
+(`sessions.ResolveSubjects`). Hesape refuses to start or rotate a session for a
+subject carrying roles or actions without one, and going into an account
+rotates the session to the account as its owner signs in, roles included:
+without a resolver, `POST` to the route `impersonate.take` fails with
+`ErrNoSubjectResolver`. With one, the session keeps who is inside whose
+account, and the roles and actions of both the account and the operator are
+read afresh on every request. The skeleton installs it; an application that
+signs people in without one installs one that answers each account as
+`Targets` does.
+
+`apidiff` reports `New` and `(*Module).Routes` as changed. Their signatures
+read as before; what moved is underneath the names they take: Framework
+v0.63.0 declares `security.SessionStore` as an alias of hesape's
+`http.SessionStore` and `fhttp.Router` as an alias of hesape's
+`controllers.Router`, where v0.58.0 declared structs of its own. An application
+on Framework v0.66.0 passes the store and the router it already builds and
+changes nothing; one that stays on an older Framework cannot take this release.
+
 ## v0.3.1
 
 Run `aru migrate`: `20261020_0001_widen_impersonations_time_precision` raises

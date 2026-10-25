@@ -89,11 +89,11 @@ func impersonating(d hview.Layout) bool {
 ## Install
 
 ```bash
-go get github.com/hyz-is/arandu-activitylog@v0.3.0
+go get github.com/hyz-is/arandu-activitylog@v0.6.0
 go get github.com/hyz-is/arandu-impersonate
 ```
 
-It needs Framework v0.58.0 and hesape v0.69.0 or newer.
+It needs Go 1.26.10, Framework v0.66.0 and hesape v0.85.0 or newer.
 
 ## Wire it
 
@@ -120,7 +120,10 @@ register `impersonateModule` in `k.Register(...)`, mount the guard after
 
 and run `aru migrate`. `Targets` answers the subject the account's owner signs
 in as — identifier, tenant, roles, actions — because the package keeps no
-users.
+users. The session store needs the application's `SubjectResolver`
+(`sessions.ResolveSubjects`, which the skeleton installs): the session keeps
+who is inside whose account, and the resolver reads the roles and actions of
+both on every request.
 
 ## Who may be impersonated
 

@@ -30,6 +30,7 @@ import (
 	"github.com/arandu-io/framework/security"
 	hdatabase "github.com/arandu-io/hesape/database"
 	sqliteconnector "github.com/arandu-io/hesape/database/connectors/sqlite"
+	hhttp "github.com/arandu-io/hesape/http"
 	activitylog "github.com/hyz-is/arandu-activitylog"
 
 	impersonate "github.com/hyz-is/arandu-impersonate"
@@ -38,8 +39,8 @@ import (
 // tenant is the customer this example writes as.
 const tenant = "acme"
 
-// accounts are the application's users, as each signs in. The package keeps
-// none: Targets is how it asks.
+// accounts are the application's users. The package keeps none: Targets is
+// how it asks, and the session store's resolver reads them on every request.
 var accounts = map[string]security.Subject{
 	"op-1": {ID: "op-1", Tenant: tenant, Verified: true, Roles: []string{impersonate.ImpersonatorRole}},
 	"ana":  {ID: "ana", Tenant: tenant, Verified: true, Roles: []string{"member"}},
@@ -69,6 +70,15 @@ func run(ctx context.Context) error {
 	// ---- the wiring, which is what an application copies -------------------
 	key := []byte("0123456789abcdef0123456789abcdef")
 	sessions := security.NewSessionStore(key, time.Hour, false, security.NewMemoryBackend())
+	// The session keeps who is signed in, and who is inside whose account;
+	// roles are read from the accounts on every request, for both.
+	sessions.ResolveSubjects(func(_ context.Context, who security.Subject) (security.Subject, error) {
+		account, ok := accounts[who.ID]
+		if !ok || account.Tenant != who.Tenant {
+			return security.Subject{}, hhttp.ErrSubjectGone
+		}
+		return account, nil
+	})
 	handle := data.Wrap(pool, data.DialectSQLite)
 	activity, err := activitylog.New(activitylog.Config{Tenant: tenant}, handle, sessions)
 	if err != nil {
@@ -124,7 +134,7 @@ func run(ctx context.Context) error {
 	// ---- one browser ------------------------------------------------------
 	browser := &browser{router: router}
 	rec := httptest.NewRecorder()
-	if _, err := sessions.Start(ctx, rec, accounts["op-1"]); err != nil {
+	if _, err := sessions.Start(ctx, rec, security.Subject{ID: "op-1", Tenant: tenant}); err != nil {
 		return err
 	}
 	browser.keep(rec)

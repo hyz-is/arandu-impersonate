@@ -17,6 +17,7 @@ import (
 	"github.com/arandu-io/hesape/auth"
 	hedatabase "github.com/arandu-io/hesape/database"
 	sqliteconnector "github.com/arandu-io/hesape/database/connectors/sqlite"
+	hhttp "github.com/arandu-io/hesape/http"
 	activitylog "github.com/hyz-is/arandu-activitylog"
 
 	impersonate "github.com/hyz-is/arandu-impersonate"
@@ -90,6 +91,7 @@ func installConfigured(t *testing.T, configure func(*impersonate.Config), resolv
 	connection := hedatabase.NewConnection(handle, path, "", map[string]any{"driver": string(hedatabase.DialectSQLite), "name": "impersonate-test"})
 	db := data.Wrap(handle, data.DialectSQLite)
 	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
+	resolveAccounts(sessions)
 
 	activity, err := activitylog.New(activitylog.Config{Tenant: tenant}, db, sessions)
 	if err != nil {
@@ -154,11 +156,28 @@ type allowAll struct{}
 
 func (allowAll) Can(context.Context, security.Subject, security.Action, struct{}) error { return nil }
 
-// signIn starts a session for an account and answers its cookies.
+// resolveAccounts installs what an application's accounts answer on every
+// request: the roles and actions of people, read afresh for the session's
+// account and for the operator viewing it. The session keeps who is signed
+// in and who is inside whose account; what each may do is the resolver's, so
+// a test that started a session carrying the impersonator role would be
+// proving the module against a subject no store hands it.
+func resolveAccounts(sessions *security.SessionStore) {
+	sessions.ResolveSubjects(func(_ context.Context, who security.Subject) (security.Subject, error) {
+		account, ok := people[who.ID]
+		if !ok || account.Tenant != who.Tenant {
+			return security.Subject{}, hhttp.ErrSubjectGone
+		}
+		return account, nil
+	})
+}
+
+// signIn starts a session for an account and answers its cookies. The session
+// is started with the account and its tenant; the rest is the resolver's.
 func (w *world) signIn(t *testing.T, id string) []*http.Cookie {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	if _, err := w.sessions.Start(context.Background(), rec, people[id]); err != nil {
+	if _, err := w.sessions.Start(context.Background(), rec, security.Subject{ID: people[id].ID, Tenant: people[id].Tenant}); err != nil {
 		t.Fatal(err)
 	}
 	return rec.Result().Cookies()
