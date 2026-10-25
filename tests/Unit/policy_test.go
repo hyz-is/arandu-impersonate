@@ -132,6 +132,32 @@ func TestTheOperatorWhoOpenedAnImpersonationClosesIt(t *testing.T) {
 	}
 }
 
+// The Grant issued to read the history only reads: the database refuses any
+// write made with it. Going in and coming back are the actions that write.
+func TestAGrantToReadTheHistoryOnlyReads(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	policy := impersonate.ImpersonatePolicy{}
+	history, err := security.Authorize(ctx, policy, operator(), impersonate.ImpersonateHistory, impersonate.Impersonation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Writable(history); !errors.Is(err, auth.ErrReadGrant) {
+		t.Fatalf("the Grant to read the history writes: %v", err)
+	}
+	take, err := security.Authorize(ctx, policy, operator(), impersonate.ImpersonateTake, impersonate.Impersonation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Writable(take); err != nil {
+		t.Fatalf("the Grant to go in does not write: %v", err)
+	}
+	if !policy.Writes(impersonate.ImpersonateLeave) {
+		t.Fatal("coming back does not write")
+	}
+}
+
 // nilHandle is a handle over no database: any statement panics.
 func nilHandle() *data.DB { return data.Wrap(nil, data.DialectSQLite) }
 

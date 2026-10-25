@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/auth"
 )
 
 // The actions of the package. Constants rather than strings at the call site:
@@ -54,6 +55,10 @@ type ImpersonatePolicy struct{}
 // Compile-time proof that the policy answers about this entity and no other.
 var _ security.Policy[Impersonation] = ImpersonatePolicy{}
 
+// Compile-time proof that the policy says which of its actions write: without
+// it the Grant issued to read the history would also be one that writes.
+var _ auth.Writes = ImpersonatePolicy{}
+
 // Can decides whether the subject may perform the action on the record.
 func (ImpersonatePolicy) Can(ctx context.Context, s security.Subject, a security.Action, record Impersonation) error {
 	// Tenant isolation comes first and applies to every action. The empty id
@@ -91,4 +96,18 @@ func (ImpersonatePolicy) Can(ctx context.Context, s security.Subject, a security
 	// arandu:end custom
 
 	return fmt.Errorf("no rule allows %s on impersonation", a)
+}
+
+// Writes reports whether a Grant issued for the action may change anything.
+//
+// Going in and coming back write the impersonation; everything else reads, so
+// the Grant issued to read the history cannot insert, update or delete a row
+// whatever the code holding it does next, and an action added without a
+// decision here fails the first time it tries to write.
+func (ImpersonatePolicy) Writes(a security.Action) bool {
+	switch a {
+	case ImpersonateTake, ImpersonateLeave:
+		return true
+	}
+	return false
 }

@@ -32,6 +32,13 @@ v0.63.0 declares `security.SessionStore` as an alias of hesape's
 on Framework v0.66.0 passes the store and the router it already builds and
 changes nothing; one that stays on an older Framework cannot take this release.
 
+`ImpersonatePolicy` implements `auth.Writes`: `ImpersonateTake` and
+`ImpersonateLeave` write, and a Grant `security.Authorize` issues for
+`ImpersonateHistory` only reads, so the database refuses any insert, update or
+delete made with it (`auth.ErrReadGrant`). Nothing in this package writes with
+such a Grant; an application that reused one to write its own rows gets the
+refusal and authorizes that write for an action that writes.
+
 ## v0.3.1
 
 Run `aru migrate`: `20261020_0001_widen_impersonations_time_precision` raises
