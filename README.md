@@ -97,28 +97,43 @@ It needs Go 1.26.10, Framework v0.66.0 and hesape v0.85.0 or newer.
 
 ## Wire it
 
-In `bootstrap/app.go`, after the session store and the activity log exist:
+In `bootstrap/app.go`, in `App`, once `NewAppServiceProvider` has returned and the
+activity log exists. `New` refuses a wiring that cannot work and `Configure` has
+no way to return that error, so the module is built where the error can leave;
+the database and the session store are the ones the framework built from the
+configuration:
 
 ```go
 	impersonateModule, err := impersonate.New(impersonate.Config{
-		Targets:  impersonate.TargetsFunc(users.ImpersonationTarget), // the account as its owner signs in
-		Activity: activityModule.Logger(),
+		Targets:         impersonate.TargetsFunc(users.ImpersonationTarget), // the account as its owner signs in
+		Activity:        activityModule.Logger(),
 		TakeRedirectTo:  "/painel",
-		LeaveRedirectTo:   "/admin/usuarios",
-	}, db, sessions)
+		LeaveRedirectTo: "/admin/usuarios",
+	}, drivers.DB, drivers.Sessions)
 	if err != nil {
-		return App{}, err
+		_ = drivers.Close()
+		return nil, err
 	}
 ```
 
-register `impersonateModule` in `k.Register(...)`, mount the guard after
-`RequireAuth` on the routes reachable from inside an account:
+Register `impersonateModule` in the `WithProviders(...)` chain the builder is made
+of:
+
+```go
+	return Configure(cfg, drivers, app).
+		WithProviders(impersonateModule).
+		WithVersion(version, commit).
+		Create()
+```
+
+Mount the guard after `RequireAuth` on the routes reachable from inside an
+account:
 
 ```go
 	panel := r.Group("/painel", middleware.RequireAuth(sessions), impersonateModule.Guard())
 ```
 
-and run `aru migrate`. `Targets` answers the subject the account's owner signs
+Then run `aru migrate`. `Targets` answers the subject the account's owner signs
 in as — identifier, tenant, roles, actions — because the package keeps no
 users. The session store needs the application's `SubjectResolver`
 (`sessions.ResolveSubjects`, which the skeleton installs): the session keeps

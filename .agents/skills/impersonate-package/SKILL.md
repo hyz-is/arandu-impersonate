@@ -37,23 +37,30 @@ import (
 )
 ```
 
-The construction, in `Build`, after the session store and the activity log
-module exist and before `k.Register`:
+The construction, in `App`, once `NewAppServiceProvider` has returned and the
+activity log module exists. `New` refuses a wiring that cannot work and
+`Configure` has no way to return that error, so the module is built where the
+error can leave; the database and the session store are the ones the framework
+built from the configuration:
 
 ```go
 	impersonateModule, err := impersonate.New(impersonate.Config{
 		Targets:  impersonate.TargetsFunc(users.ImpersonationTarget), // required
 		Activity: activityModule.Logger(),                             // required
-	}, db, sessions)
+	}, drivers.DB, drivers.Sessions)
 	if err != nil {
-		return App{}, err
+		_ = drivers.Close()
+		return nil, err
 	}
 ```
 
-The registration, inside the `k.Register(...)` call already there:
+And the registration, in the `WithProviders(...)` chain the builder is made of:
 
 ```go
-		impersonateModule,
+	return Configure(cfg, drivers, app).
+		WithProviders(impersonateModule).
+		WithVersion(version, commit).
+		Create()
 ```
 
 and the guard, after `RequireAuth`, on the routes an operator reaches from
